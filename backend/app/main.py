@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.services.market_data import get_indexes, get_kline, get_quote
@@ -47,9 +47,12 @@ def stock_quote(symbol: str) -> dict:
 
 
 @app.get("/api/stock/kline/{symbol}")
-def stock_kline(symbol: str, type: Literal["daily", "weekly"] = "daily") -> dict:
+def stock_kline(
+    symbol: str,
+    kline_type: Literal["daily", "weekly"] = Query("daily", alias="type"),
+) -> dict:
     try:
-        return get_kline(symbol, type)
+        return get_kline(symbol, kline_type)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:

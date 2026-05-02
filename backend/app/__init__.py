@@ -1,1 +1,1 @@
-
+"""QuantDash FastAPI application package."""

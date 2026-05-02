@@ -43,7 +43,7 @@ tasks:
     cmds:
       - python3 -m venv {{.BACKEND_VENV}}
       - "{{.BACKEND_PYTHON}} -m pip install --upgrade pip"
-      - "{{.BACKEND_PYTHON}} -m pip install -r backend/requirements.txt"
+      - "{{.BACKEND_PYTHON}} -m pip install -r backend/requirements-dev.txt"
 
   frontend:install:
     desc: Install frontend Node dependencies
@@ -74,11 +74,22 @@ tasks:
   backend:check:
     desc: Check backend Python syntax
     cmds:
-      - python3 -m py_compile backend/app/main.py backend/app/services/market_data.py
+      - "{{.BACKEND_PYTHON}} -m py_compile backend/app/main.py backend/app/services/market_data.py"
+
+  backend:lint:
+    desc: Run backend Pylint checks
+    preconditions:
+      - sh: test -x {{.BACKEND_PYTHON}}
+        msg: "Backend virtualenv is missing. Run: task backend:install"
+      - sh: "{{.BACKEND_PYTHON}} -m pylint --version"
+        msg: "Pylint is missing. Run: task backend:install"
+    cmds:
+      - "{{.BACKEND_PYTHON}} -m pylint backend"
 
   check:
     desc: Run project checks
     deps:
       - task: backend:check
+      - task: backend:lint
       - task: lint
       - task: build
