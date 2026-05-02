@@ -1,0 +1,84 @@
+version: "3"
+
+vars:
+  FRONTEND_DIR: frontend
+  BACKEND_VENV: .venv
+  BACKEND_PYTHON: "{{.BACKEND_VENV}}/bin/python"
+  BACKEND_HOST: 127.0.0.1
+  BACKEND_PORT: 8000
+  MARKET_API_BASE_URL: "http://{{.BACKEND_HOST}}:{{.BACKEND_PORT}}"
+
+tasks:
+  default:
+    desc: List available development tasks
+    cmds:
+      - task --list
+
+  dev:
+    desc: Start backend and frontend development servers in parallel
+    deps:
+      - task: backend:dev
+      - task: frontend:dev
+
+  backend:dev:
+    desc: Start the FastAPI market data backend
+    preconditions:
+      - sh: test -x {{.BACKEND_PYTHON}}
+        msg: "Backend virtualenv is missing. Run: task backend:install"
+      - sh: "{{.BACKEND_PYTHON}} -c \"import fastapi, uvicorn\""
+        msg: "Backend dependencies are missing. Run: task backend:install"
+    cmds:
+      - "{{.BACKEND_PYTHON}} -m uvicorn backend.app.main:app --reload --host {{.BACKEND_HOST}} --port {{.BACKEND_PORT}}"
+
+  frontend:dev:
+    desc: Start the Next.js frontend
+    dir: "{{.FRONTEND_DIR}}"
+    env:
+      MARKET_API_BASE_URL: "{{.MARKET_API_BASE_URL}}"
+    cmds:
+      - npm run dev
+
+  backend:install:
+    desc: Install backend Python dependencies
+    cmds:
+      - python3 -m venv {{.BACKEND_VENV}}
+      - "{{.BACKEND_PYTHON}} -m pip install --upgrade pip"
+      - "{{.BACKEND_PYTHON}} -m pip install -r backend/requirements.txt"
+
+  frontend:install:
+    desc: Install frontend Node dependencies
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm install
+
+  install:
+    desc: Install backend and frontend dependencies
+    deps:
+      - task: backend:install
+      - task: frontend:install
+
+  lint:
+    desc: Run frontend lint checks
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run lint
+
+  build:
+    desc: Build the frontend
+    dir: "{{.FRONTEND_DIR}}"
+    env:
+      MARKET_API_BASE_URL: "{{.MARKET_API_BASE_URL}}"
+    cmds:
+      - npm run build
+
+  backend:check:
+    desc: Check backend Python syntax
+    cmds:
+      - python3 -m py_compile backend/app/main.py backend/app/services/market_data.py
+
+  check:
+    desc: Run project checks
+    deps:
+      - task: backend:check
+      - task: lint
+      - task: build
