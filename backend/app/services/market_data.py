@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 
@@ -22,6 +22,8 @@ INDEXES = [
     ("399006", "创业板指", "s_sz399006"),
     ("000688", "科创50", "s_sh000688"),
 ]
+
+KlineType = Literal["daily", "weekly", "monthly", "yearly"]
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -88,19 +90,33 @@ def get_quote(symbol: str) -> dict[str, Any]:
     }
 
 
-def aggregate_weekly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    buckets: dict[tuple[int, int], list[dict[str, Any]]] = {}
-    for row in rows:
-        year, week, _ = date.fromisoformat(row["date"]).isocalendar()
-        buckets.setdefault((year, week), []).append(row)
+def ten_year_cutoff() -> date:
+    return date.today() - timedelta(days=3653)
 
-    weekly: list[dict[str, Any]] = []
+
+def aggregate_period(
+    rows: list[dict[str, Any]],
+    period: Literal["weekly", "monthly", "yearly"],
+) -> list[dict[str, Any]]:
+    buckets: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        row_date = date.fromisoformat(row["date"])
+        if period == "weekly":
+            year, week, _ = row_date.isocalendar()
+            key = (year, week)
+        elif period == "monthly":
+            key = (row_date.year, row_date.month)
+        else:
+            key = (row_date.year,)
+        buckets.setdefault(key, []).append(row)
+
+    aggregated: list[dict[str, Any]] = []
     for _, items in sorted(buckets.items()):
         first = items[0]
         last = items[-1]
-        previous = weekly[-1]["close"] if weekly else first["open"]
+        previous = aggregated[-1]["close"] if aggregated else first["open"]
         close = last["close"]
-        weekly.append(
+        aggregated.append(
             {
                 "date": last["date"],
                 "open": first["open"],
@@ -115,18 +131,19 @@ def aggregate_weekly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "turnover_rate": None,
             }
         )
-    return weekly
+    return aggregated
 
 
-def get_kline(symbol: str, ktype: Literal["daily", "weekly"] = "daily") -> dict[str, Any]:
+def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
     clean = normalize_symbol(symbol)
-    url = f"{SINA_KLINE}?symbol={sina_symbol(clean)}&scale=240&ma=no&datalen=2000"
+    url = f"{SINA_KLINE}?symbol={sina_symbol(clean)}&scale=240&ma=no&datalen=3000"
     text = read_text(url)
     match = re.search(r"var K=\((.*)\);?", text, re.S)
     if not match:
         raise RuntimeError("invalid Sina K-line payload")
 
     raw_rows = json.loads(match.group(1))
+    cutoff = ten_year_cutoff()
     rows = [
         {
             "date": item["d"],
@@ -141,9 +158,10 @@ def get_kline(symbol: str, ktype: Literal["daily", "weekly"] = "daily") -> dict[
             "change_amount": None,
             "turnover_rate": None,
         }
-        for item in raw_rows[-160:]
+        for item in raw_rows
+        if date.fromisoformat(item["d"]) >= cutoff
     ]
-    data = aggregate_weekly(rows)[-120:] if ktype == "weekly" else rows[-120:]
+    data = aggregate_period(rows, ktype) if ktype in {"weekly", "monthly", "yearly"} else rows
 
     return {
         "symbol": clean,

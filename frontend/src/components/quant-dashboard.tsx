@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   Activity,
   BarChart3,
@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import {
   hotKeywords,
-  marketIndexes,
   newsItems,
   orderBook,
   stocks,
@@ -24,31 +23,12 @@ import {
   type KlinePoint,
 } from "@/lib/market-data";
 import { KlineChart } from "@/components/kline-chart";
-
-const STORAGE_KEY = "quantdash.watchlist.v1";
-const DEFAULT_SYMBOL = "600519";
-
-type Quote = {
-  symbol: string;
-  name: string;
-  current_price: number | null;
-  change_rate: number | null;
-  volume: number | string | null;
-  turnover: number | string | null;
-  high: number | null;
-  low: number | null;
-  pe_ttm?: number | null;
-  pb?: number | null;
-  turnover_rate?: number | null;
-  source?: string;
-};
-
-type MarketIndex = {
-  symbol: string;
-  name: string;
-  value: number | null;
-  change_rate: number | null;
-};
+import {
+  WATCHLIST_STORAGE_KEY,
+  type MarketIndex,
+  type Quote,
+  useMarketStore,
+} from "@/stores/market-store";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -98,29 +78,36 @@ function formatAmount(value: number | string | null | undefined) {
 }
 
 export function QuantDashboard() {
-  const [query, setQuery] = useState("");
-  const [selectedSymbol, setSelectedSymbol] = useState(DEFAULT_SYMBOL);
-  const [watchlist, setWatchlist] = useState<string[]>(["600519", "300750", "688981"]);
-  const [mode, setMode] = useState<"daily" | "weekly">("daily");
-  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-  const [lookupQuote, setLookupQuote] = useState<Quote | null>(null);
-  const [lookupStatus, setLookupStatus] = useState<"idle" | "loading" | "ready" | "error">(
-    "idle",
-  );
-  const [chartData, setChartData] = useState<KlinePoint[]>([]);
-  const [indexes, setIndexes] = useState<MarketIndex[]>(
-    marketIndexes.map((item) => ({
-      symbol: item.name,
-      name: item.name,
-      value: Number(item.value),
-      change_rate: item.change,
-    })),
-  );
-  const [dataStatus, setDataStatus] = useState("连接 Python 行情源中");
+  const {
+    query,
+    selectedSymbol,
+    watchlist,
+    mode,
+    quotes,
+    lookupQuote,
+    lookupStatus,
+    chartData,
+    indexes,
+    dataStatus,
+    setQuery,
+    setSelectedSymbol,
+    setMode,
+    hydrateWatchlist,
+    addStock,
+    removeStock,
+    setLookupIdle,
+    setLookupLoading,
+    setLookupReady,
+    setLookupError,
+    mergeQuotes,
+    setChartData,
+    setIndexesReady,
+    setDataUnavailable,
+  } = useMarketStore();
 
   useEffect(() => {
     queueMicrotask(() => {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      const stored = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
       if (!stored) {
         return;
       }
@@ -128,17 +115,16 @@ export function QuantDashboard() {
       try {
         const parsed = JSON.parse(stored) as string[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setWatchlist(parsed);
-          setSelectedSymbol(parsed[0]);
+          hydrateWatchlist(parsed);
         }
       } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(WATCHLIST_STORAGE_KEY);
       }
     });
-  }, []);
+  }, [hydrateWatchlist]);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(watchlist));
+    window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
   }, [watchlist]);
 
   useEffect(() => {
@@ -152,12 +138,11 @@ export function QuantDashboard() {
         }
         const payload = (await response.json()) as { data: MarketIndex[] };
         if (active) {
-          setIndexes(payload.data);
-          setDataStatus("Python 实时行情 · Sina");
+          setIndexesReady(payload.data);
         }
       } catch {
         if (active) {
-          setDataStatus("行情源暂不可用，保留最近一次数据");
+          setDataUnavailable();
         }
       }
     }
@@ -168,14 +153,13 @@ export function QuantDashboard() {
       active = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [setDataUnavailable, setIndexesReady]);
 
   useEffect(() => {
     const symbol = query.replace(/\D/g, "").slice(0, 6);
     if (symbol.length !== 6) {
       queueMicrotask(() => {
-        setLookupQuote(null);
-        setLookupStatus("idle");
+        setLookupIdle();
       });
       return;
     }
@@ -183,7 +167,7 @@ export function QuantDashboard() {
     let active = true;
     queueMicrotask(() => {
       if (active) {
-        setLookupStatus("loading");
+        setLookupLoading();
       }
     });
     const timer = window.setTimeout(async () => {
@@ -194,13 +178,11 @@ export function QuantDashboard() {
         }
         const quote = (await response.json()) as Quote;
         if (active) {
-          setLookupQuote(quote);
-          setLookupStatus("ready");
+          setLookupReady(quote);
         }
       } catch {
         if (active) {
-          setLookupQuote(null);
-          setLookupStatus("error");
+          setLookupError();
         }
       }
     }, 300);
@@ -209,7 +191,7 @@ export function QuantDashboard() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, setLookupError, setLookupIdle, setLookupLoading, setLookupReady]);
 
   useEffect(() => {
     let active = true;
@@ -229,15 +211,10 @@ export function QuantDashboard() {
         return;
       }
 
-      setQuotes((current) => {
-        const next = { ...current };
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            next[result.value[0]] = result.value[1];
-          }
-        }
-        return next;
-      });
+      const entries = results
+        .filter((result): result is PromiseFulfilledResult<readonly [string, Quote]> => result.status === "fulfilled")
+        .map((result) => result.value);
+      mergeQuotes(entries);
     }
 
     void loadQuotes();
@@ -246,7 +223,7 @@ export function QuantDashboard() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [watchlist]);
+  }, [watchlist, mergeQuotes]);
 
   useEffect(() => {
     let active = true;
@@ -268,7 +245,7 @@ export function QuantDashboard() {
     return () => {
       active = false;
     };
-  }, [selectedSymbol, mode]);
+  }, [selectedSymbol, mode, setChartData]);
 
   const selectedMeta = stocks.find((stock) => stock.symbol === selectedSymbol);
   const selectedQuote = quotes[selectedSymbol];
@@ -277,30 +254,36 @@ export function QuantDashboard() {
   const valuationPe = selectedQuote?.pe_ttm ?? selectedMeta?.pe ?? null;
   const valuationPb = selectedQuote?.pb ?? selectedMeta?.pb ?? null;
   const valuationWatermark = typeof valuationPe === "number" ? Math.min(Math.round(valuationPe), 95) : 0;
+  const queryText = query.trim();
+  const queryDigits = queryText.replace(/\D/g, "");
+  const candidateMap = new Map(
+    stocks.map((stock) => [
+      stock.symbol,
+      { symbol: stock.symbol, name: stock.name, pinyin: stock.pinyin },
+    ]),
+  );
 
-  function addStock(symbol: string, quote?: Quote | null) {
-    const normalized = symbol.replace(/\D/g, "").slice(0, 6);
-    if (normalized.length !== 6) {
-      return;
+  for (const symbol of watchlist) {
+    if (!candidateMap.has(symbol)) {
+      candidateMap.set(symbol, {
+        symbol,
+        name: quotes[symbol]?.name ?? symbol,
+        pinyin: "",
+      });
     }
-
-    if (quote) {
-      setQuotes((current) => ({ ...current, [normalized]: quote }));
-    }
-    setWatchlist((current) => (current.includes(normalized) ? current : [normalized, ...current]));
-    setSelectedSymbol(normalized);
-    setQuery("");
   }
 
-  function removeStock(symbol: string) {
-    setWatchlist((current) => {
-      const next = current.filter((item) => item !== symbol);
-      if (symbol === selectedSymbol) {
-        setSelectedSymbol(next[0] ?? DEFAULT_SYMBOL);
-      }
-      return next.length > 0 ? next : [DEFAULT_SYMBOL];
-    });
-  }
+  const localSearchResults = Array.from(candidateMap.values())
+    .filter((stock) => {
+      const keyword = queryText.toUpperCase();
+      return (
+        stock.symbol.includes(queryDigits || queryText) ||
+        stock.name.includes(queryText) ||
+        stock.pinyin.includes(keyword)
+      );
+    })
+    .filter((stock) => stock.symbol !== lookupQuote?.symbol)
+    .slice(0, 5);
 
   return (
     <main className="min-h-screen bg-[#080a0d] text-slate-100">
@@ -325,16 +308,45 @@ export function QuantDashboard() {
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="输入 6 位股票代码"
+                  placeholder="搜索股票代码 / 名称 / 拼音"
                   className="h-10 w-full rounded-md border border-white/10 bg-black/30 pl-9 pr-3 text-sm outline-none transition focus:border-emerald-400/70"
                 />
               </label>
 
               {query && (
-                <div className="mt-2 overflow-hidden rounded-md border border-white/10 bg-[#111821]">
-                  {lookupStatus === "idle" && (
-                    <div className="px-3 py-2 text-sm text-slate-500">输入完整 6 位 A 股代码后查询</div>
-                  )}
+                <div className="mt-2 max-h-72 overflow-y-auto rounded-md border border-white/10 bg-[#111821]">
+                  {localSearchResults.map((stock) => {
+                    const quote = quotes[stock.symbol];
+                    const change = quote?.change_rate;
+
+                    return (
+                      <button
+                        key={stock.symbol}
+                        type="button"
+                        onClick={() => addStock(stock.symbol, quote)}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/5"
+                      >
+                        <span className="min-w-0">
+                          <span className="font-medium">{quote?.name ?? stock.name}</span>
+                          <span className="ml-2 font-mono text-xs text-slate-500">
+                            {stock.symbol}
+                          </span>
+                          {quote && (
+                            <span
+                              className={cn(
+                                "ml-2 font-mono text-xs",
+                                (change ?? 0) >= 0 ? "text-emerald-300" : "text-red-300",
+                              )}
+                            >
+                              {formatNumber(quote.current_price)} / {formatChange(change)}
+                            </span>
+                          )}
+                        </span>
+                        <Plus size={15} className="shrink-0 text-emerald-300" />
+                      </button>
+                    );
+                  })}
+
                   {lookupStatus === "loading" && (
                     <div className="px-3 py-2 text-sm text-slate-500">正在查询真实行情</div>
                   )}
@@ -345,9 +357,9 @@ export function QuantDashboard() {
                     <button
                       type="button"
                       onClick={() => addStock(lookupQuote.symbol, lookupQuote)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-white/5"
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/5"
                     >
-                      <span>
+                      <span className="min-w-0">
                         <span className="font-medium">{lookupQuote.name}</span>
                         <span className="ml-2 font-mono text-xs text-slate-500">
                           {lookupQuote.symbol}
@@ -363,8 +375,13 @@ export function QuantDashboard() {
                           {formatNumber(lookupQuote.current_price)} / {formatChange(lookupQuote.change_rate)}
                         </span>
                       </span>
-                      <Plus size={15} className="text-emerald-300" />
+                      <Plus size={15} className="shrink-0 text-emerald-300" />
                     </button>
+                  )}
+                  {lookupStatus === "idle" && localSearchResults.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-slate-500">
+                      继续输入代码，满 6 位后查询真实行情
+                    </div>
                   )}
                 </div>
               )}
@@ -487,11 +504,13 @@ export function QuantDashboard() {
                   {[
                     ["daily", "日线"],
                     ["weekly", "周线"],
+                    ["monthly", "月线"],
+                    ["yearly", "年线"],
                   ].map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
-                      onClick={() => setMode(value as "daily" | "weekly")}
+                      onClick={() => setMode(value as "daily" | "weekly" | "monthly" | "yearly")}
                       className={cn(
                         "rounded px-3 py-1.5 text-sm transition",
                         mode === value ? "bg-emerald-400 text-black" : "text-slate-400 hover:text-slate-100",

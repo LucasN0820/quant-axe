@@ -23,6 +23,7 @@ function movingAverage(dayCount: number, data: KlinePoint[]) {
 
 export function KlineChart({ data }: KlineChartProps) {
   const visibleData = data;
+  const start = visibleData.length > 80 ? 45 : 0;
   const option = {
     animation: true,
     backgroundColor: "transparent",
@@ -40,8 +41,47 @@ export function KlineChart({ data }: KlineChartProps) {
       data: ["K线", "MA5", "MA10", "成交量"],
     },
     grid: [
-      { left: 48, right: 18, top: 38, height: "58%" },
-      { left: 48, right: 18, top: "74%", height: "16%" },
+      { left: 48, right: 18, top: 38, height: "54%" },
+      { left: 48, right: 18, top: "71%", height: "14%" },
+    ],
+    dataZoom: [
+      {
+        type: "inside",
+        xAxisIndex: [0, 1],
+        start,
+        end: 100,
+        minSpan: 8,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+      },
+      {
+        type: "slider",
+        xAxisIndex: [0, 1],
+        start,
+        end: 100,
+        minSpan: 8,
+        height: 22,
+        bottom: 10,
+        borderColor: "rgba(148, 163, 184, 0.18)",
+        fillerColor: "rgba(70, 211, 165, 0.16)",
+        handleStyle: {
+          color: "#46d3a5",
+          borderColor: "#46d3a5",
+        },
+        moveHandleStyle: {
+          color: "rgba(70, 211, 165, 0.35)",
+        },
+        dataBackground: {
+          lineStyle: { color: "rgba(148, 163, 184, 0.24)" },
+          areaStyle: { color: "rgba(148, 163, 184, 0.08)" },
+        },
+        selectedDataBackground: {
+          lineStyle: { color: "rgba(70, 211, 165, 0.38)" },
+          areaStyle: { color: "rgba(70, 211, 165, 0.12)" },
+        },
+        textStyle: { color: "#6f8196" },
+      },
     ],
     xAxis: [
       {

@@ -49,7 +49,7 @@ def stock_quote(symbol: str) -> dict:
 @app.get("/api/stock/kline/{symbol}")
 def stock_kline(
     symbol: str,
-    kline_type: Literal["daily", "weekly"] = Query("daily", alias="type"),
+    kline_type: Literal["daily", "weekly", "monthly", "yearly"] = Query("daily", alias="type"),
 ) -> dict:
     try:
         return get_kline(symbol, kline_type)
