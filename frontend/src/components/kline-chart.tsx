@@ -9,15 +9,12 @@ type KlineChartProps = {
 
 function movingAverage(dayCount: number, data: KlinePoint[]) {
   return data.map((_, index) => {
-    if (index < dayCount - 1) {
-      return null;
-    }
+    const start = Math.max(0, index - dayCount + 1);
+    const window = data.slice(start, index + 1);
 
-    const sum = data
-      .slice(index - dayCount + 1, index + 1)
-      .reduce((total, point) => total + point.close, 0);
+    const sum = window.reduce((total, point) => total + point.close, 0);
 
-    return Number((sum / dayCount).toFixed(2));
+    return Number((sum / window.length).toFixed(2));
   });
 }
 
