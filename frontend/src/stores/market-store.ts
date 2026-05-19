@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { marketIndexes } from "@/lib/market-data";
 import type { ChartMode, KlinePoint, MarketIndex, Quote, QuoteCacheEntry } from "@/lib/market-types";
 
 export const DEFAULT_SYMBOL = "600519";
@@ -55,12 +54,12 @@ function cacheEntry(quote: Quote): QuoteCacheEntry {
   };
 }
 
-const initialIndexes = marketIndexes.map((item) => ({
-  symbol: item.name,
-  name: item.name,
-  value: Number(item.value),
-  change_rate: item.change,
-}));
+const initialIndexes: MarketIndex[] = [
+  { symbol: "000001", name: "上证指数", value: null, change_rate: null },
+  { symbol: "399001", name: "深证成指", value: null, change_rate: null },
+  { symbol: "399006", name: "创业板指", value: null, change_rate: null },
+  { symbol: "000688", name: "科创50", value: null, change_rate: null },
+];
 
 export const useMarketStore = create<MarketStore>((set) => ({
   query: "",
@@ -163,4 +162,3 @@ export const useMarketStore = create<MarketStore>((set) => ({
     }),
   setDataUnavailable: () => set({ dataStatus: "行情源暂不可用，保留最近一次数据" }),
 }));
-
