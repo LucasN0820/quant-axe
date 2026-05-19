@@ -23,6 +23,15 @@ INDEXES = [
     ("000688", "科创50", "s_sh000688"),
 ]
 
+STOCK_SEARCH_FIXTURE = [
+    {"symbol": "600519", "name": "贵州茅台", "pinyin": "GZMT"},
+    {"symbol": "300750", "name": "宁德时代", "pinyin": "NDSD"},
+    {"symbol": "000001", "name": "平安银行", "pinyin": "PAYH"},
+    {"symbol": "002415", "name": "海康威视", "pinyin": "HKWS"},
+    {"symbol": "601318", "name": "中国平安", "pinyin": "ZGPA"},
+    {"symbol": "688981", "name": "中芯国际", "pinyin": "ZXGJ"},
+]
+
 KlineType = Literal["daily", "weekly", "monthly", "yearly"]
 
 
@@ -187,3 +196,76 @@ def get_indexes() -> dict[str, Any]:
             }
         )
     return {"source": "sina", "data": data}
+
+
+def search_stocks(query: str) -> dict[str, Any]:
+    keyword = query.strip().upper()
+    if not keyword:
+        return {"source": "local_seed", "data": []}
+
+    digits = "".join(ch for ch in keyword if ch.isdigit())
+    data = [
+        stock
+        for stock in STOCK_SEARCH_FIXTURE
+        if (digits and digits in stock["symbol"])
+        or keyword in stock["name"].upper()
+        or keyword in stock["pinyin"]
+    ]
+    return {"source": "local_seed", "data": data[:10]}
+
+
+def get_order_book(symbol: str) -> dict[str, Any]:
+    clean = normalize_symbol(symbol)
+    fields = parse_hq_payload(read_text(f"{SINA_QUOTE}{sina_symbol(clean)}", "gbk"))
+    labels = ["一", "二", "三", "四", "五"]
+
+    bids = [
+        {
+            "level": f"买{labels[index]}",
+            "price": float(fields[11 + index * 2]),
+            "volume": int(float(fields[10 + index * 2])),
+        }
+        for index in range(5)
+    ]
+    asks = [
+        {
+            "level": f"卖{labels[index]}",
+            "price": float(fields[21 + index * 2]),
+            "volume": int(float(fields[20 + index * 2])),
+        }
+        for index in range(5)
+    ]
+
+    return {
+        "symbol": clean,
+        "source": "sina",
+        "updated_at": f"{fields[30]} {fields[31]}" if len(fields) > 31 else None,
+        "data": {"asks": list(reversed(asks)), "bids": bids},
+    }
+
+
+def get_financials(symbol: str) -> dict[str, Any]:
+    clean = normalize_symbol(symbol)
+    quote = get_quote(clean)
+    return {
+        "symbol": clean,
+        "source": quote.get("source"),
+        "updated_at": "实时 quote 不包含完整财务指标",
+        "data": {
+            "pe_ttm": quote.get("pe_ttm"),
+            "pb": quote.get("pb"),
+            "roe": None,
+            "gross_margin": None,
+        },
+    }
+
+
+def unavailable_dataset(symbol: str | None, source: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": source,
+        "status": "unavailable",
+        "data": [],
+    }
+    if symbol is not None:
+        payload["symbol"] = normalize_symbol(symbol)
+    return payload

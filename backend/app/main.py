@@ -5,7 +5,15 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.services.market_data import get_indexes, get_kline, get_quote
+from backend.app.services.market_data import (
+    get_financials,
+    get_indexes,
+    get_kline,
+    get_order_book,
+    get_quote,
+    search_stocks,
+    unavailable_dataset,
+)
 
 
 app = FastAPI(
@@ -57,3 +65,65 @@ def stock_kline(
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/stocks/search")
+def stocks_search(q: str = Query("")) -> dict:
+    return search_stocks(q)
+
+
+@app.get("/api/stock/intraday/{symbol}")
+def stock_intraday(symbol: str) -> dict:
+    try:
+        return unavailable_dataset(symbol, "not_configured")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/stock/order-book/{symbol}")
+def stock_order_book(symbol: str) -> dict:
+    try:
+        return get_order_book(symbol)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/stock/trades/{symbol}")
+def stock_trades(symbol: str) -> dict:
+    try:
+        return unavailable_dataset(symbol, "not_configured")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/stock/news/{symbol}")
+def stock_news(symbol: str) -> dict:
+    try:
+        return unavailable_dataset(symbol, "not_configured")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/stock/announcements/{symbol}")
+def stock_announcements(symbol: str) -> dict:
+    try:
+        return unavailable_dataset(symbol, "not_configured")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/stock/financials/{symbol}")
+def stock_financials(symbol: str) -> dict:
+    try:
+        return get_financials(symbol)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/intelligence/hot-keywords")
+def hot_keywords() -> dict:
+    return unavailable_dataset(None, "not_configured")

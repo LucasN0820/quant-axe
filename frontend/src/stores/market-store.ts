@@ -1,43 +1,22 @@
 import { create } from "zustand";
-import { marketIndexes, type KlinePoint } from "@/lib/market-data";
+import { marketIndexes } from "@/lib/market-data";
+import type { ChartMode, KlinePoint, MarketIndex, Quote, QuoteCacheEntry } from "@/lib/market-types";
 
 export const DEFAULT_SYMBOL = "600519";
 export const WATCHLIST_STORAGE_KEY = "quantdash.watchlist.v1";
 
-export type Quote = {
-  symbol: string;
-  name: string;
-  current_price: number | null;
-  change_rate: number | null;
-  volume: number | string | null;
-  turnover: number | string | null;
-  high: number | null;
-  low: number | null;
-  pe_ttm?: number | null;
-  pb?: number | null;
-  turnover_rate?: number | null;
-  source?: string;
-};
-
-export type MarketIndex = {
-  symbol: string;
-  name: string;
-  value: number | null;
-  change_rate: number | null;
-};
-
 type LookupStatus = "idle" | "loading" | "ready" | "error";
-type ChartMode = "daily" | "weekly" | "monthly" | "yearly";
 
 type MarketStore = {
   query: string;
   selectedSymbol: string;
   watchlist: string[];
   mode: ChartMode;
-  quotes: Record<string, Quote>;
+  quoteCache: Record<string, QuoteCacheEntry>;
   lookupQuote: Quote | null;
   lookupStatus: LookupStatus;
   chartData: KlinePoint[];
+  chartStatus: "idle" | "loading" | "ready" | "error";
   indexes: MarketIndex[];
   dataStatus: string;
   setQuery: (query: string) => void;
@@ -50,8 +29,11 @@ type MarketStore = {
   setLookupLoading: () => void;
   setLookupReady: (quote: Quote) => void;
   setLookupError: () => void;
-  mergeQuotes: (entries: Array<readonly [string, Quote]>) => void;
+  markQuotesLoading: (symbols: string[]) => void;
+  mergeQuoteResults: (entries: Array<readonly [string, Quote]>, failedSymbols?: string[]) => void;
+  setChartLoading: () => void;
   setChartData: (data: KlinePoint[]) => void;
+  setChartError: () => void;
   setIndexesReady: (indexes: MarketIndex[]) => void;
   setDataUnavailable: () => void;
 };
@@ -60,29 +42,53 @@ function normalizeSymbol(symbol: string) {
   return symbol.replace(/\D/g, "").slice(0, 6);
 }
 
+function dedupeSymbols(symbols: string[]) {
+  return Array.from(new Set(symbols.map(normalizeSymbol).filter((symbol) => symbol.length === 6)));
+}
+
+function cacheEntry(quote: Quote): QuoteCacheEntry {
+  return {
+    quote,
+    status: "ready",
+    updatedAt: new Date().toISOString(),
+    error: null,
+  };
+}
+
+const initialIndexes = marketIndexes.map((item) => ({
+  symbol: item.name,
+  name: item.name,
+  value: Number(item.value),
+  change_rate: item.change,
+}));
+
 export const useMarketStore = create<MarketStore>((set) => ({
   query: "",
   selectedSymbol: DEFAULT_SYMBOL,
   watchlist: ["600519", "300750", "688981"],
   mode: "daily",
-  quotes: {},
+  quoteCache: {},
   lookupQuote: null,
   lookupStatus: "idle",
   chartData: [],
-  indexes: marketIndexes.map((item) => ({
-    symbol: item.name,
-    name: item.name,
-    value: Number(item.value),
-    change_rate: item.change,
-  })),
+  chartStatus: "idle",
+  indexes: initialIndexes,
   dataStatus: "连接 Python 行情源中",
   setQuery: (query) => set({ query }),
-  setSelectedSymbol: (symbol) => set({ selectedSymbol: symbol }),
+  setSelectedSymbol: (symbol) => {
+    const normalized = normalizeSymbol(symbol);
+    if (normalized.length === 6) {
+      set({ selectedSymbol: normalized });
+    }
+  },
   setMode: (mode) => set({ mode }),
   hydrateWatchlist: (symbols) =>
-    set({
-      watchlist: symbols,
-      selectedSymbol: symbols[0] ?? DEFAULT_SYMBOL,
+    set((state) => {
+      const watchlist = dedupeSymbols(symbols);
+      return {
+        watchlist: watchlist.length > 0 ? watchlist : state.watchlist,
+        selectedSymbol: watchlist[0] ?? state.selectedSymbol,
+      };
     }),
   addStock: (symbol, quote) => {
     const normalized = normalizeSymbol(symbol);
@@ -93,7 +99,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
     set((state) => ({
       query: "",
       selectedSymbol: normalized,
-      quotes: quote ? { ...state.quotes, [normalized]: quote } : state.quotes,
+      lookupQuote: null,
+      lookupStatus: "idle",
+      quoteCache: quote
+        ? { ...state.quoteCache, [normalized]: cacheEntry({ ...quote, symbol: normalized }) }
+        : state.quoteCache,
       watchlist: state.watchlist.includes(normalized)
         ? state.watchlist
         : [normalized, ...state.watchlist],
@@ -112,15 +122,40 @@ export const useMarketStore = create<MarketStore>((set) => ({
   setLookupLoading: () => set({ lookupStatus: "loading" }),
   setLookupReady: (quote) => set({ lookupQuote: quote, lookupStatus: "ready" }),
   setLookupError: () => set({ lookupQuote: null, lookupStatus: "error" }),
-  mergeQuotes: (entries) =>
+  markQuotesLoading: (symbols) =>
     set((state) => {
-      const quotes = { ...state.quotes };
-      for (const [symbol, quote] of entries) {
-        quotes[symbol] = quote;
+      const quoteCache = { ...state.quoteCache };
+      for (const symbol of dedupeSymbols(symbols)) {
+        const current = quoteCache[symbol];
+        quoteCache[symbol] = {
+          quote: current?.quote ?? null,
+          status: current?.quote ? "stale" : "loading",
+          updatedAt: current?.updatedAt ?? null,
+          error: null,
+        };
       }
-      return { quotes };
+      return { quoteCache };
     }),
-  setChartData: (chartData) => set({ chartData }),
+  mergeQuoteResults: (entries, failedSymbols = []) =>
+    set((state) => {
+      const quoteCache = { ...state.quoteCache };
+      for (const [symbol, quote] of entries) {
+        quoteCache[symbol] = cacheEntry(quote);
+      }
+      for (const symbol of dedupeSymbols(failedSymbols)) {
+        const current = quoteCache[symbol];
+        quoteCache[symbol] = {
+          quote: current?.quote ?? null,
+          status: current?.quote ? "stale" : "error",
+          updatedAt: current?.updatedAt ?? null,
+          error: "行情源暂不可用",
+        };
+      }
+      return { quoteCache };
+    }),
+  setChartLoading: () => set({ chartStatus: "loading" }),
+  setChartData: (chartData) => set({ chartData, chartStatus: chartData.length > 0 ? "ready" : "idle" }),
+  setChartError: () => set({ chartStatus: "error" }),
   setIndexesReady: (indexes) =>
     set({
       indexes,
@@ -128,3 +163,4 @@ export const useMarketStore = create<MarketStore>((set) => ({
     }),
   setDataUnavailable: () => set({ dataStatus: "行情源暂不可用，保留最近一次数据" }),
 }));
+

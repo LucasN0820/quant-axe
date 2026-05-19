@@ -1,7 +1,7 @@
 "use client";
 
 import ReactECharts from "echarts-for-react";
-import type { KlinePoint } from "@/lib/market-data";
+import type { KlinePoint } from "@/lib/market-types";
 
 type KlineChartProps = {
   data: KlinePoint[];
