@@ -72,14 +72,6 @@ def stocks_search(q: str = Query("")) -> dict:
     return search_stocks(q)
 
 
-@app.get("/api/stock/intraday/{symbol}")
-def stock_intraday(symbol: str) -> dict:
-    try:
-        return unavailable_dataset(symbol, "not_configured")
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
 @app.get("/api/stock/order-book/{symbol}")
 def stock_order_book(symbol: str) -> dict:
     try:

@@ -242,7 +242,6 @@ export function useKlineData() {
 }
 
 export function useMarketDetails(symbol: string) {
-  const [intraday, setIntraday] = useState<DetailState<unknown[]>>(emptyState([]));
   const [orderBook, setOrderBook] = useState<DetailState<OrderBookData>>(emptyState({ asks: [], bids: [] }));
   const [trades, setTrades] = useState<DetailState<TradePrint[]>>(emptyState([]));
   const [news, setNews] = useState<DetailState<NewsItem[]>>(emptyState([]));
@@ -256,7 +255,6 @@ export function useMarketDetails(symbol: string) {
     let active = true;
 
     async function loadDetails() {
-      setIntraday({ status: "loading", data: [] });
       setOrderBook({ status: "loading", data: { asks: [], bids: [] } });
       setTrades({ status: "loading", data: [] });
       setNews({ status: "loading", data: [] });
@@ -265,7 +263,6 @@ export function useMarketDetails(symbol: string) {
       setHotKeywords({ status: "loading", data: [] });
 
       const [
-        intradayResult,
         orderBookResult,
         tradesResult,
         newsResult,
@@ -273,7 +270,6 @@ export function useMarketDetails(symbol: string) {
         financialsResult,
         hotKeywordsResult,
       ] = await Promise.allSettled([
-        fetchJson<{ data: unknown[]; source?: string }>(`/api/stock/intraday/${symbol}`),
         fetchJson<{ data: OrderBookData; source?: string }>(`/api/stock/order-book/${symbol}`),
         fetchJson<{ data: TradePrint[]; source?: string }>(`/api/stock/trades/${symbol}`),
         fetchJson<{ data: NewsItem[]; source?: string }>(`/api/stock/news/${symbol}`),
@@ -286,7 +282,6 @@ export function useMarketDetails(symbol: string) {
         return;
       }
 
-      setIntraday(toArrayState(intradayResult));
       setOrderBook(toObjectState(orderBookResult, { asks: [], bids: [] }));
       setTrades(toArrayState(tradesResult));
       setNews(toArrayState(newsResult));
@@ -303,7 +298,7 @@ export function useMarketDetails(symbol: string) {
     };
   }, [symbol]);
 
-  return { intraday, orderBook, trades, news, announcements, financials, hotKeywords };
+  return { orderBook, trades, news, announcements, financials, hotKeywords };
 }
 
 function toArrayState<T>(

@@ -23,15 +23,6 @@ INDEXES = [
     ("000688", "科创50", "s_sh000688"),
 ]
 
-STOCK_SEARCH_FIXTURE = [
-    {"symbol": "600519", "name": "贵州茅台", "pinyin": "GZMT"},
-    {"symbol": "300750", "name": "宁德时代", "pinyin": "NDSD"},
-    {"symbol": "000001", "name": "平安银行", "pinyin": "PAYH"},
-    {"symbol": "002415", "name": "海康威视", "pinyin": "HKWS"},
-    {"symbol": "601318", "name": "中国平安", "pinyin": "ZGPA"},
-    {"symbol": "688981", "name": "中芯国际", "pinyin": "ZXGJ"},
-]
-
 KlineType = Literal["daily", "weekly", "monthly", "yearly"]
 
 
@@ -199,19 +190,12 @@ def get_indexes() -> dict[str, Any]:
 
 
 def search_stocks(query: str) -> dict[str, Any]:
-    keyword = query.strip().upper()
-    if not keyword:
-        return {"source": "local_seed", "data": []}
-
-    digits = "".join(ch for ch in keyword if ch.isdigit())
-    data = [
-        stock
-        for stock in STOCK_SEARCH_FIXTURE
-        if (digits and digits in stock["symbol"])
-        or keyword in stock["name"].upper()
-        or keyword in stock["pinyin"]
-    ]
-    return {"source": "local_seed", "data": data[:10]}
+    return {
+        "source": "not_configured",
+        "status": "unavailable",
+        "query": query,
+        "data": [],
+    }
 
 
 def get_order_book(symbol: str) -> dict[str, Any]:
