@@ -405,6 +405,71 @@ def insert_hot_news_items(rows: Iterable[dict[str, Any]]) -> None:
                 )
 
 
+def upsert_financial_metrics(rows: Iterable[dict[str, Any]]) -> None:
+    with postgres_connection() as connection:
+        with connection.cursor() as cursor:
+            for row in rows:
+                cursor.execute(
+                    """
+                    INSERT INTO financial_metrics
+                      (symbol, report_period, pe_ttm, pb, roe, gross_margin,
+                       source, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, report_period, source) DO UPDATE SET
+                      pe_ttm = EXCLUDED.pe_ttm,
+                      pb = EXCLUDED.pb,
+                      roe = EXCLUDED.roe,
+                      gross_margin = EXCLUDED.gross_margin,
+                      updated_at = EXCLUDED.updated_at
+                    """,
+                    (
+                        row.get("symbol"),
+                        row.get("report_period"),
+                        row.get("pe_ttm"),
+                        row.get("pb"),
+                        row.get("roe"),
+                        row.get("gross_margin"),
+                        row.get("source"),
+                        row.get("updated_at"),
+                    ),
+                )
+
+
+def fetch_latest_financial_metrics(symbol: str) -> list[dict[str, Any]]:
+    with postgres_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT symbol, report_period, pe_ttm, pb, roe, gross_margin, source, updated_at
+                FROM financial_metrics
+                WHERE symbol = %s
+                ORDER BY report_period DESC, updated_at DESC
+                LIMIT 8
+                """,
+                (symbol,),
+            )
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def insert_hot_keywords(rows: Iterable[dict[str, Any]]) -> None:
+    with postgres_connection() as connection:
+        with connection.cursor() as cursor:
+            for row in rows:
+                cursor.execute(
+                    """
+                    INSERT INTO hot_keywords (word, heat, sources, captured_at)
+                    VALUES (%s, %s, %s::jsonb, %s)
+                    """,
+                    (
+                        row.get("word"),
+                        row.get("heat"),
+                        json.dumps(row.get("sources") or [], ensure_ascii=False),
+                        row.get("captured_at"),
+                    ),
+                )
+
+
 def insert_news_items(rows: Iterable[dict[str, Any]], news_type: str) -> None:
     with postgres_connection() as connection:
         with connection.cursor() as cursor:

@@ -4,3 +4,5 @@ akshare==1.18.62
 psycopg[binary]==3.3.2
 redis==7.1.0
 tushare==1.4.24
+apscheduler==3.10.4
+pypinyin==0.51.0

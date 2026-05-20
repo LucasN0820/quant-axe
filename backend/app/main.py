@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -17,21 +18,33 @@ from backend.app.services.data_center import (
     stock_status,
     trading_days,
 )
-from backend.app.services.news_data import get_hot_news, get_stock_news
+from backend.app.services.financials_data import get_financial_metrics
+from backend.app.services.intraday_data import get_intraday, get_trade_prints
 from backend.app.services.market_data import (
-    get_financials,
     get_indexes,
     get_order_book,
     get_quote,
-    search_stocks,
-    unavailable_dataset,
 )
+from backend.app.services.news_data import get_hot_news, get_stock_news
+from backend.app.services.scheduler import scheduler_status, start_scheduler, stop_scheduler
+from backend.app.services.search_data import search_universe
+from backend.app.services.sentiment_data import get_hot_keywords
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 app = FastAPI(
     title="QuantDash Market Data API",
     description="FastAPI BFF/data service for real A-share quote, K-line, and market index data.",
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -64,6 +77,11 @@ def data_jobs_run(job_type: str = Query(..., alias="type")) -> dict:
         return run_data_job(job_type)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/data/scheduler")
+def data_scheduler() -> dict:
+    return scheduler_status()
 
 
 @app.get("/api/market/indexes")
@@ -101,8 +119,8 @@ def stock_kline(
 
 
 @app.get("/api/stocks/search")
-def stocks_search(q: str = Query("")) -> dict:
-    return search_stocks(q)
+def stocks_search(q: str = Query(""), limit: int = Query(20, ge=1, le=50)) -> dict:
+    return search_universe(q, limit)
 
 
 @app.get("/api/stocks/profiles")
@@ -167,10 +185,18 @@ def stock_order_book(symbol: str) -> dict:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
-@app.get("/api/stock/trades/{symbol}")
-def stock_trades(symbol: str) -> dict:
+@app.get("/api/stock/intraday/{symbol}")
+def stock_intraday(symbol: str) -> dict:
     try:
-        return unavailable_dataset(symbol, "not_configured")
+        return get_intraday(symbol)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/stock/trades/{symbol}")
+def stock_trades(symbol: str, limit: int = Query(60, ge=1, le=200)) -> dict:
+    try:
+        return get_trade_prints(symbol, limit)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -194,7 +220,7 @@ def stock_announcements(symbol: str, limit: int = Query(30, ge=1, le=100)) -> di
 @app.get("/api/stock/financials/{symbol}")
 def stock_financials(symbol: str) -> dict:
     try:
-        return get_financials(symbol)
+        return get_financial_metrics(symbol)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
@@ -202,8 +228,8 @@ def stock_financials(symbol: str) -> dict:
 
 
 @app.get("/api/intelligence/hot-keywords")
-def hot_keywords() -> dict:
-    return unavailable_dataset(None, "not_configured")
+def hot_keywords(limit: int = Query(40, ge=1, le=100)) -> dict:
+    return get_hot_keywords(limit)
 
 
 @app.get("/api/news/hot")

@@ -33,7 +33,6 @@ from backend.app.services.storage import (
     upsert_trade_calendar,
 )
 
-
 DATA_JOB_DEFINITIONS = {
     "initialize_storage": "Create PostgreSQL tables for local Data Center storage",
     "stock_profiles": "Refresh stock profile reference data",
@@ -42,12 +41,19 @@ DATA_JOB_DEFINITIONS = {
     "daily_bars": "Refresh unadjusted/qfq/hfq daily bars",
     "stock_status": "Refresh ST/suspension/limit status",
     "news": "Refresh hot and stock news",
+    "hot_keywords": "Refresh sentiment hot keywords",
+    "financials": "Refresh Tushare valuation and quality metrics",
     "quality_daily_bars": "Run daily bar quality checks",
 }
 
 
 def data_health() -> dict[str, Any]:
-    from backend.app.services.tushare_data import tushare_status  # pylint: disable=import-outside-toplevel
+    from backend.app.services.scheduler_state import (  # pylint: disable=import-outside-toplevel
+        scheduler_status,
+    )
+    from backend.app.services.tushare_data import (  # pylint: disable=import-outside-toplevel
+        tushare_status,
+    )
 
     return {
         "status": "partial",
@@ -56,13 +62,14 @@ def data_health() -> dict[str, Any]:
         "providers": [
             {"id": "akshare", "status": "configured", "role": "market/reference/news"},
             {"id": "newsnow", "status": "configured", "role": "hot_news"},
-            tushare_status() | {"role": "announcements/supplement/reference"},
+            tushare_status() | {"role": "announcements/financials/supplement"},
         ],
         "storage": [
             postgres_status(),
             redis_status(),
-            {"id": "parquet_duckdb", "status": "pending_decision"},
+            {"id": "parquet_duckdb", "status": "deferred", "note": "PG-only for MVP"},
         ],
+        "scheduler": scheduler_status(),
     }
 
 
@@ -99,6 +106,10 @@ def run_data_job(job_type: str) -> dict[str, Any]:
             result = refresh_tushare_stock_profiles()
         elif job_type == "trade_calendar":
             result = refresh_trade_calendar()
+        elif job_type == "hot_keywords":
+            result = refresh_hot_keywords()
+        elif job_type == "financials":
+            result = refresh_financials_for_watchlist()
         else:
             result = {
                 "status": "not_implemented",
@@ -175,6 +186,39 @@ def refresh_trade_calendar() -> dict[str, Any]:
     upsert_trade_calendar(payload["data"])
     save_raw_payload("akshare", "tool_trade_date_hist_sina", payload["data"])
     return {"status": "ready", "rows": len(payload["data"])}
+
+
+def refresh_hot_keywords() -> dict[str, Any]:
+    from backend.app.services.sentiment_data import (  # pylint: disable=import-outside-toplevel
+        get_hot_keywords,
+    )
+
+    payload = get_hot_keywords(limit=50)
+    return {"status": payload.get("status", "unknown"), "rows": len(payload.get("data", []))}
+
+
+def refresh_financials_for_watchlist() -> dict[str, Any]:
+    from backend.app.services.config import (  # pylint: disable=import-outside-toplevel
+        DAILY_REFRESH_WATCHLIST,
+    )
+    from backend.app.services.financials_data import (  # pylint: disable=import-outside-toplevel
+        get_financial_metrics,
+    )
+
+    refreshed = 0
+    failed: list[str] = []
+    for symbol in DAILY_REFRESH_WATCHLIST:
+        try:
+            payload = get_financial_metrics(symbol)
+            if payload.get("status") == "ready":
+                refreshed += 1
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            failed.append(f"{symbol}:{error}")
+    return {
+        "status": "ready" if refreshed > 0 else "empty",
+        "refreshed": refreshed,
+        "failed": failed,
+    }
 
 
 def get_served_kline(symbol: str, ktype: str = "daily", adjust: str = "none") -> dict[str, Any]:

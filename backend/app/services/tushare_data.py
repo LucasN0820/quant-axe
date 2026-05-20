@@ -1,7 +1,9 @@
-"""Tushare provider adapter for reference and announcement data."""
+"""Tushare provider adapter for reference, announcement, and financial data."""
 
 from __future__ import annotations
 
+import math
+from datetime import date, timedelta
 from typing import Any
 
 from backend.app.services.config import TUSHARE_TOKEN
@@ -79,6 +81,99 @@ def fetch_tushare_announcements(symbol: str, limit: int = 30) -> dict[str, Any]:
         "updated_at": now,
         "data": rows,
     }
+
+
+def fetch_tushare_daily_basic(symbol: str) -> dict[str, Any]:
+    """Latest snapshot of valuation/turnover indicators from Tushare daily_basic."""
+    pro = tushare_client()
+    ts_code = to_ts_code(symbol)
+    end = date.today().strftime("%Y%m%d")
+    start = (date.today() - timedelta(days=14)).strftime("%Y%m%d")
+    frame = pro.daily_basic(
+        ts_code=ts_code,
+        start_date=start,
+        end_date=end,
+        fields=(
+            "ts_code,trade_date,close,turnover_rate,turnover_rate_f,"
+            "pe,pe_ttm,pb,ps_ttm,dv_ttm,total_share,float_share,"
+            "free_share,total_mv,circ_mv"
+        ),
+    )
+    records = frame.to_dict("records") if hasattr(frame, "to_dict") else []
+    if not records:
+        return {"symbol": symbol, "data": None, "source": "tushare.daily_basic", "status": "empty"}
+    latest = records[0]
+    return {
+        "symbol": symbol,
+        "source": "tushare.daily_basic",
+        "status": "ready",
+        "data": {
+            "trade_date": normalize_provider_date(latest.get("trade_date")),
+            "close": numeric(latest.get("close")),
+            "pe": numeric(latest.get("pe")),
+            "pe_ttm": numeric(latest.get("pe_ttm")),
+            "pb": numeric(latest.get("pb")),
+            "ps_ttm": numeric(latest.get("ps_ttm")),
+            "dv_ttm": numeric(latest.get("dv_ttm")),
+            "turnover_rate": numeric(latest.get("turnover_rate")),
+            "turnover_rate_f": numeric(latest.get("turnover_rate_f")),
+            "total_mv": numeric(latest.get("total_mv")),
+            "circ_mv": numeric(latest.get("circ_mv")),
+            "total_share": numeric(latest.get("total_share")),
+            "float_share": numeric(latest.get("float_share")),
+        },
+    }
+
+
+def fetch_tushare_fina_indicator(symbol: str) -> dict[str, Any]:
+    """Latest report period quality/growth metrics from Tushare fina_indicator."""
+    pro = tushare_client()
+    ts_code = to_ts_code(symbol)
+    frame = pro.fina_indicator(
+        ts_code=ts_code,
+        fields=(
+            "ts_code,end_date,roe,roe_waa,roe_dt,grossprofit_margin,"
+            "netprofit_margin,debt_to_assets,or_yoy,netprofit_yoy,assets_yoy"
+        ),
+    )
+    records = frame.to_dict("records") if hasattr(frame, "to_dict") else []
+    if not records:
+        return {
+            "symbol": symbol,
+            "data": None,
+            "source": "tushare.fina_indicator",
+            "status": "empty",
+        }
+    latest = records[0]
+    return {
+        "symbol": symbol,
+        "source": "tushare.fina_indicator",
+        "status": "ready",
+        "data": {
+            "report_period": normalize_provider_date(latest.get("end_date")),
+            "roe": numeric(latest.get("roe")),
+            "roe_waa": numeric(latest.get("roe_waa")),
+            "roe_dt": numeric(latest.get("roe_dt")),
+            "gross_margin": numeric(latest.get("grossprofit_margin")),
+            "netprofit_margin": numeric(latest.get("netprofit_margin")),
+            "debt_to_assets": numeric(latest.get("debt_to_assets")),
+            "revenue_yoy": numeric(latest.get("or_yoy")),
+            "netprofit_yoy": numeric(latest.get("netprofit_yoy")),
+            "assets_yoy": numeric(latest.get("assets_yoy")),
+        },
+    }
+
+
+def numeric(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(result):
+        return None
+    return result
 
 
 def tushare_client():

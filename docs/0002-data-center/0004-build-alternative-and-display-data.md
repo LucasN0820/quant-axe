@@ -19,18 +19,21 @@
 4. 建立 `hot_keywords`，记录热词、热度、来源和采集时间。
 5. 参考 `LucasN0820/news-collector` 的实现方式接入 NewsNow 热点新闻：按平台 ID 请求 `GET /api/s?id=<platform_id>&latest`，标准化为 `GET /api/news/hot`。
 6. 使用 AkShare `stock_news_em` 接入个股新闻，标准化为 `GET /api/stock/news/[symbol]`。
-7. 接入真实分时图数据接口。
-8. 接入真实五档盘口数据接口。
-9. 接入真实逐笔成交数据接口。
-10. 为热点新闻、个股新闻、公告、财务和舆情任务设计分钟、小时或财报周期更新频率。
-11. 对数据缺失保留空结果，不生成投资结论。
+7. 使用 Tushare `anns` 接入真实公告，标准化为 `GET /api/stock/announcements/[symbol]`。
+8. 使用 Tushare `daily_basic` + `fina_indicator` 接入真实财务指标，标准化为 `GET /api/stock/financials/[symbol]`。
+9. 接入真实分时图数据接口：AkShare `stock_zh_a_hist_min_em` 主源，`stock_zh_a_minute` 备选。
+10. 接入真实五档盘口数据接口。
+11. 接入真实逐笔成交数据接口：第一版使用 AkShare `stock_intraday_em` 当日分笔聚合。
+12. 为热点新闻、个股新闻、公告、财务和舆情任务设计分钟、小时或财报周期更新频率。
+13. 对数据缺失保留空结果，不生成投资结论。
 
 ## 新闻源策略
 
 - 热点新闻：使用 NewsNow 聚合 API 作为 MVP 数据源，优先平台为 `cls-hot`、`wallstreetcn-hot`、`thepaper`、`baidu`、`weibo`、`zhihu`、`toutiao`。该数据只代表全市场热点，不直接绑定股票。
 - 个股新闻：使用 AkShare `stock_news_em`，按 6 位 A 股代码查询东方财富个股新闻。该数据随选中股票刷新，是行情看板个股新闻区域的主数据源。
-- 公告：不使用 NewsNow 替代公告，后续优先接 Tushare、交易所或巨潮等公告源。
-- 舆情热词：第一版可从热点新闻标题中做关键词统计，后续再引入更完整的热度、情绪或 NLP 分析。
+- 公告：不使用 NewsNow 替代公告，第一版使用 Tushare `anns`，后续可补充交易所或巨潮源。
+- 财务指标：使用 Tushare `daily_basic` + `fina_indicator` 合并估值、质量、成长和市值字段；未配置 `TUSHARE_TOKEN` 时返回 `not_configured`。
+- 舆情热词：第一版从 NewsNow 热点新闻标题中做关键词统计，后续再引入更完整的热度、情绪或 NLP 分析。
 
 ## 产出
 

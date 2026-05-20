@@ -96,6 +96,7 @@ type WatchlistState = {
 
 | Endpoint | 来源模块 | 用途 |
 | --- | --- | --- |
+| `GET /api/stocks/search` | data-center | 自选股搜索，覆盖 A 股、指数、ETF、拼音和拼音首字母 |
 | `GET /api/market/indexes` | data-center | 顶部指数栏 |
 | `GET /api/stock/quote/[symbol]` | data-center | 自选股和主面板行情 |
 | `GET /api/stock/kline/[symbol]` | data-center | K 线图 |
@@ -104,8 +105,9 @@ type WatchlistState = {
 | `GET /api/stock/trades/[symbol]` | data-center | 逐笔成交 |
 | `GET /api/news/hot` | data-center | News page 热点新闻流，参考 `news-collector` 的 NewsNow 聚合 API 方式接入 |
 | `GET /api/stock/news/[symbol]` | data-center | 个股新闻流，使用 AkShare 个股新闻接口接入 |
-| `GET /api/stock/announcements/[symbol]` | data-center | 公告流 |
-| `GET /api/intelligence/hot-keywords` | data-center | 舆情热词 |
+| `GET /api/stock/announcements/[symbol]` | data-center | 公告流，使用 Tushare `anns` |
+| `GET /api/stock/financials/[symbol]` | data-center | 财务摘要，使用 Tushare `daily_basic` + `fina_indicator` |
+| `GET /api/intelligence/hot-keywords` | data-center | 舆情热词，基于 NewsNow 标题派生 |
 
 ### 5.1 新闻数据分层
 
@@ -129,6 +131,12 @@ toutiao           今日头条
 热点新闻不等同于公告，也不承担个股精确关联。若需要在个股页展示“相关热点”，前端只能基于股票名称、简称、行业或关键词做弱关联标记，不能替代 `GET /api/stock/news/[symbol]`。
 
 新闻展示统一按可解析时间从近到远排序：优先 `published_at/time`，其次 `updated_at/captured_at`，时间缺失时保留来源排名。新闻时间戳列必须保持不换行，避免在窄屏或侧栏中拆成多行。
+
+### 5.2 非新闻数据源分工
+
+- 实时 quote、市场指数、K 线、分时、五档盘口和逐笔成交由 AkShare 提供；分时图以 `stock_zh_a_hist_min_em` 为主源，逐笔成交第一版使用 `stock_intraday_em` 当日分笔聚合。
+- 股票搜索由 `data-center` 构建跨标的搜索索引，覆盖 A 股（沪/深/北）、重要指数、ETF，并支持代码、名称、拼音和拼音首字母。
+- 公告和财务指标由 Tushare 提供；未配置 `TUSHARE_TOKEN` 时前端展示空状态，不生成模拟结论。
 
 ## 6. 关键流程
 

@@ -285,7 +285,12 @@ export function useMarketDetails(symbol: string) {
   const [news, setNews] = useState<DetailState<NewsItem[]>>(emptyState([]));
   const [announcements, setAnnouncements] = useState<DetailState<NewsItem[]>>(emptyState([]));
   const [financials, setFinancials] = useState<DetailState<FinancialMetrics>>(
-    emptyState({ pe_ttm: null, pb: null, roe: null, gross_margin: null }),
+    emptyState({
+      pe_ttm: null,
+      pb: null,
+      roe: null,
+      gross_margin: null,
+    }),
   );
   const [hotKeywords, setHotKeywords] = useState<DetailState<HotKeyword[]>>(emptyState([]));
 
@@ -297,7 +302,10 @@ export function useMarketDetails(symbol: string) {
       setTrades({ status: "loading", data: [] });
       setNews({ status: "loading", data: [] });
       setAnnouncements({ status: "loading", data: [] });
-      setFinancials({ status: "loading", data: { pe_ttm: null, pb: null, roe: null, gross_margin: null } });
+      setFinancials({
+        status: "loading",
+        data: { pe_ttm: null, pb: null, roe: null, gross_margin: null },
+      });
       setHotKeywords({ status: "loading", data: [] });
 
       const [
@@ -364,15 +372,24 @@ function toArrayState<T>(
 }
 
 function toObjectState<T>(
-  result: PromiseSettledResult<{ data: T; source?: string }>,
+  result: PromiseSettledResult<{ data: T; source?: string; status?: string; message?: string }>,
   fallback: T,
 ): DetailState<T> {
   if (result.status === "rejected") {
     return { status: "error", data: fallback, message: "数据接口暂不可用" };
   }
+  const value = result.value;
+  if (value.status === "unavailable" || value.status === "not_configured") {
+    return {
+      status: "error",
+      data: fallback,
+      source: value.source,
+      message: value.message ?? (value.status === "not_configured" ? "数据源未配置" : "数据接口暂不可用"),
+    };
+  }
   return {
     status: "ready",
-    data: result.value.data ?? fallback,
-    source: result.value.source,
+    data: value.data ?? fallback,
+    source: value.source,
   };
 }

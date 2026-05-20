@@ -594,22 +594,35 @@ export function FinancialSummaryPanel({
   quote?: Quote | null;
   financials: DetailState<FinancialMetrics>;
 }) {
-  const pe = financials.data.pe_ttm ?? quote?.pe_ttm ?? null;
-  const pb = financials.data.pb ?? quote?.pb ?? null;
+  const data = financials.data;
+  const pe = data.pe_ttm ?? quote?.pe_ttm ?? null;
+  const pb = data.pb ?? quote?.pb ?? null;
+  const roe = data.roe ?? null;
+  const grossMargin = data.gross_margin ?? null;
   const watermark = typeof pe === "number" ? Math.min(Math.round(pe), 95) : 0;
+  const periodLabel = data.report_period ?? data.trade_date ?? null;
+  const isUnconfigured = financials.source === "tushare" && financials.status === "idle";
+  const notConfigured = financials.message === "TUSHARE_TOKEN is not configured";
 
   return (
     <section className="rounded-lg border border-white/10 bg-white/3">
       <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
         <WalletCards size={18} className="text-emerald-300" />
         <h3 className="font-medium">财务估值卡片</h3>
+        {periodLabel && (
+          <span className="ml-auto rounded border border-white/10 px-2 py-1 font-mono text-xs text-slate-500">
+            {periodLabel}
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3 p-4">
         {[
           ["PE TTM", formatMetric(pe)],
           ["PB", formatMetric(pb)],
-          ["ROE", formatMetric(financials.data.roe)],
-          ["毛利率", formatMetric(financials.data.gross_margin)],
+          ["ROE", formatMetric(roe, "%")],
+          ["毛利率", formatMetric(grossMargin, "%")],
+          ["营收同比", formatMetric(data.revenue_yoy, "%")],
+          ["净利同比", formatMetric(data.netprofit_yoy, "%")],
         ].map(([label, value]) => (
           <div key={label} className="rounded-md border border-white/10 bg-black/25 p-3">
             <div className="text-xs text-slate-500">{label}</div>
@@ -625,9 +638,16 @@ export function FinancialSummaryPanel({
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <div className="h-full rounded-full bg-emerald-300" style={{ width: `${watermark}%` }} />
         </div>
-        {financials.status === "empty" || (!pe && !pb) ? (
-          <p className="mt-3 text-xs text-slate-500">财务数据源尚未接入，当前不生成估值判断。</p>
+        {notConfigured ? (
+          <p className="mt-3 text-xs text-amber-300">
+            未配置 TUSHARE_TOKEN，财务指标暂不可用。
+          </p>
+        ) : !pe && !pb && !roe ? (
+          <p className="mt-3 text-xs text-slate-500">财务数据源暂未返回结果，不生成估值判断。</p>
         ) : null}
+        {isUnconfigured && (
+          <p className="mt-1 text-xs text-slate-500">数据源 Tushare daily_basic + fina_indicator</p>
+        )}
       </div>
     </section>
   );

@@ -29,21 +29,21 @@ External Sources
   -> Provider Adapters
   -> Raw Storage
   -> Cleaning Jobs
-  -> Clean Tables / Parquet
+  -> Clean Tables / PostgreSQL
   -> Feature-ready Serving API
 ```
 
 建议技术栈：
 
-| 层级 | 技术 |
-| --- | --- |
-| API | FastAPI |
-| 批处理 | Pandas / Polars |
-| 任务调度 | APScheduler / Celery / Prefect |
-| 关系数据 | PostgreSQL |
-| 历史行情/因子矩阵 | Parquet / DuckDB |
-| 高频缓存 | Redis |
-| 数据源 | AkShare 行情与个股新闻，NewsNow 热点新闻，Tushare 可选 |
+| 层级              | 技术                                                   |
+| ----------------- | ------------------------------------------------------ |
+| API               | FastAPI                                                |
+| 批处理            | Pandas / Polars                                        |
+| 任务调度          | APScheduler / Celery / Prefect                         |
+| 关系数据          | PostgreSQL                                             |
+| 历史行情/因子矩阵 | PostgreSQL（第一阶段）；Parquet / DuckDB 后续评估      |
+| 高频缓存          | Redis                                                  |
+| 数据源            | AkShare 行情与个股新闻，NewsNow 热点新闻，Tushare 公告与财务 |
 
 ## 4. 数据分层
 
@@ -67,6 +67,7 @@ serving
 ## 5. 核心数据表
 
 ```text
+raw_payloads(id, provider, dataset, symbol, payload, captured_at)
 stock_profiles(symbol, name, exchange, industry, listed_at, delisted_at, pinyin)
 trade_calendar(date, is_open, exchange)
 daily_bars(symbol, date, open, high, low, close, volume, turnover, adjust_type)
@@ -79,32 +80,124 @@ hot_keywords(id, word, heat, sources, captured_at)
 data_jobs(id, job_type, status, started_at, finished_at, error)
 ```
 
-新闻数据分层：
+新闻与舆情数据分层：
 
 - `hot_news_items` 保存全市场热点新闻。数据源参考 `news-collector` 的 NewsNow 聚合 API 方式，按平台 ID 拉取热榜，适合构建市场级舆情和热词，不直接作为个股新闻。
-- `news_items` 保存个股新闻、公告、财报、回购、减持、增持等与股票强相关的数据。第一版个股新闻使用 AkShare `stock_news_em`，公告后续可接 Tushare 或交易所/巨潮源。
+- `news_items` 保存个股新闻、公告、财报、回购、减持、增持等与股票强相关的数据。第一版个股新闻使用 AkShare `stock_news_em`，公告使用 Tushare `anns`。
+- `hot_keywords` 第一版基于 NewsNow 热点标题派生热词，后续可替换为更完整的 NLP/情绪模型，API 契约保持稳定。
 
 ## 6. API 设计
 
 ```text
 GET /api/data/health
+GET /api/data/scheduler
+GET /api/data/jobs
+POST /api/data/jobs/run
+GET /api/data/quality/daily-bars/[symbol]?adjust=
 GET /api/stocks/search?q=
+GET /api/stocks/profiles?q=
 GET /api/stocks/[symbol]/profile
 GET /api/calendar/trading-days?start=&end=
 GET /api/stock/kline/[symbol]?type=&adjust=
+GET /api/stock/intraday/[symbol]
+GET /api/stock/trades/[symbol]?limit=
 GET /api/stock/status/[symbol]?date=
 GET /api/stock/financials/[symbol]
 GET /api/news/hot?sources=&limit=
 GET /api/stock/news/[symbol]?limit=
 GET /api/stock/announcements/[symbol]?limit=
-GET /api/intelligence/hot-keywords?symbol=
-GET /api/data/jobs
-POST /api/data/jobs/run
+GET /api/intelligence/hot-keywords?limit=
 ```
 
-## 7. 新闻与舆情 Provider 设计
+## 7. Tushare 进阶接入
 
-### 7.1 NewsNow 热点新闻 Provider
+### 7.1 数据源分工原则
+
+| 场景                            | 首选                                     | 备选                                   |
+| ------------------------------- | ---------------------------------------- | -------------------------------------- |
+| 实时 quote / 五档 / 分时 / 逐笔 | AkShare                                  | —                                      |
+| 指数实时行情                    | AkShare                                  | —                                      |
+| 历史日 K（展示）                | AkShare                                  | Tushare daily                          |
+| 历史日 K（回测核心）            | Tushare（后续迁移）                      | AkShare 校验                           |
+| 复权因子                        | Tushare `adj_factor`（后续）             | AkShare `adjust=qfq`                   |
+| 股票基础信息                    | Tushare `stock_basic`                    | AkShare 拼音/简称补充                  |
+| 交易日历                        | AkShare `tool_trade_date_hist_sina`      | Tushare `trade_cal`                    |
+| 涨跌停价格                      | 自算（前收盘 × 比例）                    | Tushare `stk_limit`（后续）            |
+| 停牌历史                        | 日 K 缺失推断                            | Tushare `suspend_d`（后续）            |
+| ST 历史                         | 当前简称推断                             | Tushare `namechange`（后续）           |
+| 财务指标 PE/PB/ROE/毛利率       | Tushare `daily_basic` + `fina_indicator` | —                                      |
+| 指数成分股 + 权重               | Tushare `index_weight`（后续）           | —                                      |
+| 行业分类                        | Tushare `sw_index_member`（后续）        | —                                      |
+| 公告                            | Tushare `anns`                           | —                                      |
+| 个股新闻                        | AkShare `stock_news_em`                  | —                                      |
+| 全市场热点新闻                  | NewsNow 聚合                             | —                                      |
+| 舆情热词                        | NewsNow 标题派生                         | AkShare `stock_hot_keyword_em`（后续） |
+| 板块/概念                       | AkShare                                  | —                                      |
+
+### 7.2 已接入 Tushare 接口
+
+| 接口             | 用途                  | 积分要求 |
+| ---------------- | --------------------- | -------- |
+| `stock_basic`    | 股票基础信息          | 120      |
+| `anns`           | 公告                  | 120      |
+| `daily_basic`    | PE/PB/换手率/流通市值 | 2000     |
+| `fina_indicator` | ROE/毛利率/净利增速   | 2000     |
+
+### 7.3 后续待接入（回测前置）
+
+| 接口           | 用途                   | 积分要求 |
+| -------------- | ---------------------- | -------- |
+| `adj_factor`   | 复权因子，自算 qfq/hfq | 2000     |
+| `namechange`   | ST 状态历史            | 2000     |
+| `suspend_d`    | 停牌历史               | 2000     |
+| `stk_limit`    | 涨跌停价格历史         | 2000     |
+| `index_weight` | 沪深 300/中证 500 成分 | 2000     |
+| `trade_cal`    | 交易所口径交易日历     | 120      |
+
+### 7.4 注意事项
+
+- 不要用 AkShare `adjust=qfq` 直接做回测：动态前复权基准日不固定，不同时间拉同一段历史会得到不同价格。
+- ST 状态必须用历史口径：当前 `is_st_name(profile.name)` 只看今天的名称，回测会判错涨跌停比例。
+- Tushare 积分门槛需提前规划：`daily_basic` + `fina_indicator` 需要 2000 积分。
+
+## 8. 调度器设计
+
+### 8.1 方案
+
+使用 APScheduler `BackgroundScheduler` 内嵌进 FastAPI 进程，通过 `lifespan` 钩子启停。
+
+### 8.2 配置
+
+| 环境变量                       | 默认值  | 说明                           |
+| ------------------------------ | ------- | ------------------------------ |
+| `SCHEDULER_ENABLED`            | `false` | 是否启用调度器                 |
+| `HOT_NEWS_REFRESH_MINUTES`     | `15`    | 热点新闻刷新间隔               |
+| `HOT_KEYWORDS_REFRESH_MINUTES` | `30`    | 舆情热词刷新间隔               |
+| `STOCK_PROFILE_REFRESH_HOURS`  | `24`    | 股票基础信息刷新间隔           |
+| `TRADE_CALENDAR_REFRESH_HOURS` | `24`    | 交易日历刷新间隔               |
+| `DAILY_BARS_CRON_HOUR`         | `16`    | 日线刷新时间（周一至周五）     |
+| `FINANCIALS_CRON_HOUR`         | `20`    | 财务指标刷新时间（周一至周五） |
+
+### 8.3 任务列表
+
+| 任务                     | 触发方式        | 说明                                |
+| ------------------------ | --------------- | ----------------------------------- |
+| `hot_news_refresh`       | interval        | 拉取 NewsNow 热点新闻               |
+| `hot_keywords_refresh`   | interval        | 从热点标题派生热词                  |
+| `stock_profile_refresh`  | interval        | 刷新 AkShare + Tushare 股票基础信息 |
+| `trade_calendar_refresh` | interval        | 刷新交易日历                        |
+| `daily_bars_refresh`     | cron 周一至周五 | 刷新 watchlist 日线（三种复权）     |
+| `financials_refresh`     | cron 周一至周五 | 刷新 watchlist 财务指标             |
+
+### 8.4 运行状态
+
+`GET /api/data/scheduler` 返回调度器启用状态、是否运行中、各任务最近执行时间和结果。
+
+调度器默认关闭，需要显式设置 `SCHEDULER_ENABLED=true`，避免本地开发或测试环境无人值守触发外部请求。
+
+## 9. 新闻与舆情 Provider 设计
+
+### 9.1 NewsNow 热点新闻 Provider
 
 - 用途：全市场热点新闻和舆情热词输入。
 - 参考实现：`LucasN0820/news-collector` 的 `DataFetcher`，请求 `GET /api/s?id=<platform_id>&latest`。
@@ -113,14 +206,27 @@ POST /api/data/jobs/run
 - 清洗规则：跳过空标题；保留来源、排名、URL、更新时间；同一 `source_id + title` 在同一抓取批次去重。
 - 风险控制：公开 NewsNow 实例只作为 MVP 数据源，后续应允许切换到自建 NewsNow 服务，避免依赖第三方公开实例稳定性。
 
-### 7.2 AkShare 个股新闻 Provider
+### 9.2 AkShare 个股新闻 Provider
 
 - 用途：按 `symbol` 查询个股新闻，服务 `GET /api/stock/news/[symbol]`。
 - 接口：AkShare `stock_news_em`。
 - 清洗规则：标准化 6 位 A 股代码；输出标题、摘要、来源、链接、发布时间和抓取时间；缺少发布时间时保留空值，不伪造时间。
 - 降级策略：AkShare 请求失败或无数据时返回空列表和 `status: unavailable` 或 `status: empty`，不生成 mock 新闻。
 
-## 8. 数据质量规则
+### 9.3 Tushare 公告与财务 Provider
+
+- 用途：公告服务 `GET /api/stock/announcements/[symbol]`，财务指标服务 `GET /api/stock/financials/[symbol]`。
+- 接口：公告使用 Tushare `anns`；财务指标使用 `daily_basic` 与 `fina_indicator` 合并。
+- 清洗规则：公告写入 `news_items` 并标记 `type=announcement`；财务指标写入 `financial_metrics`，保留 `report_period`、估值、质量、成长和市值字段。
+- 降级策略：未配置 `TUSHARE_TOKEN` 时返回 `status: not_configured`；接口失败时返回 `status: unavailable`，前端展示空状态，不生成模拟公告或财务结论。
+
+### 9.4 搜索、分时与逐笔 Provider
+
+- 跨标的搜索使用 AkShare 构建进程内索引，覆盖 A 股（沪/深/北）、重要指数、ETF，并支持股票名称、代码、拼音和拼音首字母查询。
+- 分时图使用 AkShare `stock_zh_a_hist_min_em`，失败时回退 `stock_zh_a_minute`。
+- 逐笔成交第一版使用 AkShare `stock_intraday_em` 当日分笔聚合数据；A 股 Tick 级数据后续可替换为付费或自建数据源。
+
+## 10. 数据质量规则
 
 - 同一 `symbol + date + adjust_type` 不允许重复。
 - 交易日历关闭日期不应出现普通日线交易数据。
@@ -130,7 +236,7 @@ POST /api/data/jobs/run
 - 热点新闻与个股新闻分表或分类型存储，不能把全市场热榜直接标记为个股新闻。
 - 新闻 URL 为空时允许用 `source + title + captured_at` 做临时去重键，但需要标记不可追溯风险。
 
-## 9. 独立测试设计
+## 11. 独立测试设计
 
 - Provider adapter 使用固定原始响应 fixture 测试解析。
 - 清洗任务使用小样本数据测试去重、字段类型、缺失值处理。
@@ -138,11 +244,12 @@ POST /api/data/jobs/run
 - API 层使用测试数据库，不依赖真实外部网络。
 - 数据质量规则可以单独运行并输出报告。
 
-## 10. 验收标准
+## 12. 验收标准
 
 - 可以查询任意 A 股最近 10 年日线数据。
 - 可以区分未复权、前复权、后复权。
 - 可以判断某只股票某日是否 ST、停牌、涨停、跌停。
 - 可以查询全市场热点新闻和指定股票的个股新闻，且二者来源和类型清晰区分。
+- 可以查询公告、财务指标、分时图、逐笔成交和舆情热词，缺失时返回标准空状态。
 - 数据接口稳定返回标准字段。
 - 数据源异常不会污染 clean 层数据。

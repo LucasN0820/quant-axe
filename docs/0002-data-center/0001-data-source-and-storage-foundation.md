@@ -10,16 +10,16 @@
 
 - 已有 FastAPI 数据服务骨架。
 - 已有 AkShare quote、指数、日 K、五档盘口和周期聚合。
-- 待确认 Tushare 是否作为公告和补充数据源。
+- 已确认 Tushare 作为公告、财务指标和股票基础资料补充源。
 
 ## 执行步骤
 
 1. 定义 provider adapter 接口，统一外部数据源返回结构和错误格式。
 2. 接入 AkShare 作为行情展示、研究与回测优先数据源。
 3. 移除 Sina 行情依赖，避免实时 quote、指数、K 线和盘口多源口径不一致。
-4. 评估 Tushare Token 接入成本，若未确认则保留 adapter 占位。
+4. 接入 Tushare Token 配置，作为公告、财务指标和基础资料补充源；未配置时返回标准 `not_configured` 状态。
 5. 建立 PostgreSQL 连接、迁移方案和基础表管理流程。
-6. 评估历史行情、因子矩阵是否使用 Parquet/DuckDB，并记录结论。
+6. 评估历史行情、因子矩阵是否使用 Parquet/DuckDB，并记录第一阶段采用 PostgreSQL 的结论。
 7. 增加 Redis 缓存，用于 quote、盘口、分时和任务状态。
 8. 设计 `data_jobs` 任务表，记录任务状态、开始结束时间和错误信息。
 
@@ -29,6 +29,7 @@
 - PostgreSQL 基础存储。
 - Redis 缓存入口。
 - 数据更新任务记录模型。
+- Tushare、AkShare、NewsNow 的数据源分工。
 
 ## 验收
 

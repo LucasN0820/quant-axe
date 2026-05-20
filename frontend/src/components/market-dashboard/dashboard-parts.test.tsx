@@ -24,7 +24,7 @@ describe("dashboard empty states", () => {
       />,
     );
 
-    expect(screen.getByText("财务数据源尚未接入，当前不生成估值判断。")).toBeInTheDocument();
+    expect(screen.getByText("财务数据源暂未返回结果，不生成估值判断。")).toBeInTheDocument();
     expect(screen.getAllByText("--").length).toBeGreaterThan(0);
   });
 

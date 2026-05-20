@@ -48,6 +48,8 @@ export type StockSearchResult = {
   symbol: string;
   name: string;
   pinyin?: string;
+  kind?: "stock" | "index" | "etf";
+  exchange?: string;
 };
 
 export type OrderBookLevel = {
@@ -65,6 +67,7 @@ export type TradePrint = {
   time: string;
   price: number | null;
   volume: number | null;
+  turnover?: number | null;
   side: string;
 };
 
@@ -85,14 +88,29 @@ export type NewsItem = {
 
 export type FinancialMetrics = {
   pe_ttm: number | null;
+  pe?: number | null;
   pb: number | null;
+  ps_ttm?: number | null;
+  dv_ttm?: number | null;
   roe: number | string | null;
+  roe_waa?: number | null;
   gross_margin: number | string | null;
+  netprofit_margin?: number | null;
+  debt_to_assets?: number | null;
+  revenue_yoy?: number | null;
+  netprofit_yoy?: number | null;
+  turnover_rate?: number | null;
+  total_mv?: number | null;
+  circ_mv?: number | null;
+  trade_date?: string | null;
+  report_period?: string | null;
 };
 
 export type HotKeyword = {
   word: string;
   heat: number;
+  frequency?: number;
+  sources?: string[];
 };
 
 export type DetailState<T> = {
