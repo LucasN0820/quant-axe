@@ -54,6 +54,15 @@ function cacheEntry(quote: Quote): QuoteCacheEntry {
   };
 }
 
+function loadingEntry(current?: QuoteCacheEntry): QuoteCacheEntry {
+  return {
+    quote: current?.quote ?? null,
+    status: current?.quote ? "stale" : "loading",
+    updatedAt: current?.updatedAt ?? null,
+    error: null,
+  };
+}
+
 const initialIndexes: MarketIndex[] = [
   { symbol: "000001", name: "上证指数", value: null, change_rate: null },
   { symbol: "399001", name: "深证成指", value: null, change_rate: null },
@@ -100,9 +109,12 @@ export const useMarketStore = create<MarketStore>((set) => ({
       selectedSymbol: normalized,
       lookupQuote: null,
       lookupStatus: "idle",
-      quoteCache: quote
-        ? { ...state.quoteCache, [normalized]: cacheEntry({ ...quote, symbol: normalized }) }
-        : state.quoteCache,
+      quoteCache: {
+        ...state.quoteCache,
+        [normalized]: quote
+          ? cacheEntry({ ...quote, symbol: normalized })
+          : loadingEntry(state.quoteCache[normalized]),
+      },
       watchlist: state.watchlist.includes(normalized)
         ? state.watchlist
         : [normalized, ...state.watchlist],
@@ -125,13 +137,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
     set((state) => {
       const quoteCache = { ...state.quoteCache };
       for (const symbol of dedupeSymbols(symbols)) {
-        const current = quoteCache[symbol];
-        quoteCache[symbol] = {
-          quote: current?.quote ?? null,
-          status: current?.quote ? "stale" : "loading",
-          updatedAt: current?.updatedAt ?? null,
-          error: null,
-        };
+        quoteCache[symbol] = loadingEntry(quoteCache[symbol]);
       }
       return { quoteCache };
     }),
@@ -158,7 +164,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   setIndexesReady: (indexes) =>
     set({
       indexes,
-      dataStatus: "Python 实时行情 · Sina",
+      dataStatus: "Python 实时行情 · AkShare",
     }),
   setDataUnavailable: () => set({ dataStatus: "行情源暂不可用，保留最近一次数据" }),
 }));

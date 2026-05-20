@@ -9,14 +9,14 @@
 ## 前置依赖
 
 - 已有 FastAPI 数据服务骨架。
-- 已有 Sina quote、指数、日 K 和周期聚合。
-- 待确认 AkShare 与 Tushare 的优先级。
+- 已有 AkShare quote、指数、日 K、五档盘口和周期聚合。
+- 待确认 Tushare 是否作为公告和补充数据源。
 
 ## 执行步骤
 
 1. 定义 provider adapter 接口，统一外部数据源返回结构和错误格式。
-2. 接入 AkShare 作为研究与回测优先数据源。
-3. 保留 Sina 作为 MVP 行情展示和降级来源。
+2. 接入 AkShare 作为行情展示、研究与回测优先数据源。
+3. 移除 Sina 行情依赖，避免实时 quote、指数、K 线和盘口多源口径不一致。
 4. 评估 Tushare Token 接入成本，若未确认则保留 adapter 占位。
 5. 建立 PostgreSQL 连接、迁移方案和基础表管理流程。
 6. 评估历史行情、因子矩阵是否使用 Parquet/DuckDB，并记录结论。
@@ -32,7 +32,6 @@
 
 ## 验收
 
-- 数据中心能从统一接口调用 Sina 和 AkShare。
+- 数据中心能从统一接口调用 AkShare。
 - 数据任务状态可查询。
 - 外部数据源失败不会污染 clean 层。
-

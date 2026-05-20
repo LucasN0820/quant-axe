@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   Activity,
+  ArrowRight,
   BarChart3,
   Bell,
   CandlestickChart,
@@ -17,7 +19,15 @@ import {
   WalletCards,
 } from "lucide-react";
 import { KlineChart } from "@/components/kline-chart";
-import { cn, formatAmount, formatChange, formatMetric, formatNumber } from "@/lib/market-format";
+import {
+  changeColorClass,
+  cn,
+  formatAmount,
+  formatChange,
+  formatMetric,
+  formatNumber,
+} from "@/lib/market-format";
+import { formatNewsTime, sortNewsByTimeDesc } from "@/lib/news-utils";
 import type {
   ChartMode,
   DetailState,
@@ -179,7 +189,7 @@ function SearchResultButton({
           <span
             className={cn(
               "ml-2 font-mono text-xs",
-              (quote.change_rate ?? 0) >= 0 ? "text-emerald-300" : "text-red-300",
+              changeColorClass(quote.change_rate),
             )}
           >
             {formatNumber(quote.current_price)} / {formatChange(quote.change_rate)}
@@ -230,11 +240,14 @@ function WatchlistItem({
           <div className="mt-1 font-mono text-xs text-slate-500">
             {symbol}
             {entry?.status === "stale" && <span className="ml-2 text-amber-300">stale</span>}
+            {entry?.status === "loading" && !quote && (
+              <span className="ml-2 text-slate-400">查询中</span>
+            )}
           </div>
         </div>
         <div className="text-right">
           <div className="font-mono text-sm">{formatNumber(quote?.current_price)}</div>
-          <div className={cn("mt-1 font-mono text-xs", (change ?? 0) >= 0 ? "text-emerald-300" : "text-red-300")}>
+          <div className={cn("mt-1 font-mono text-xs", changeColorClass(change))}>
             {formatChange(change)}
           </div>
         </div>
@@ -243,7 +256,7 @@ function WatchlistItem({
         <span>成交额 {formatAmount(quote?.turnover)}</span>
         <span>量 {formatAmount(quote?.volume)}</span>
       </div>
-      {entry?.status === "error" && <div className="mt-2 text-xs text-red-300">行情暂不可用</div>}
+      {entry?.status === "error" && quote && <div className="mt-2 text-xs text-red-300">行情暂不可用</div>}
       <button
         type="button"
         onClick={(event) => {
@@ -276,7 +289,7 @@ export function MarketIndexTicker({
             >
               <span className="text-sm text-slate-400">{item.name}</span>
               <span className="font-mono text-sm">{formatNumber(item.value)}</span>
-              <span className={cn("font-mono text-xs", (item.change_rate ?? 0) >= 0 ? "text-emerald-300" : "text-red-300")}>
+              <span className={cn("font-mono text-xs", changeColorClass(item.change_rate))}>
                 {formatChange(item.change_rate)}
               </span>
             </div>
@@ -320,7 +333,7 @@ export function StockHeader({
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-4">
           <span className="font-mono text-3xl">{formatNumber(quote?.current_price)}</span>
-          <span className={cn("flex items-center gap-1 font-mono text-sm", (change ?? 0) >= 0 ? "text-emerald-300" : "text-red-300")}>
+          <span className={cn("flex items-center gap-1 font-mono text-sm", changeColorClass(change))}>
             {(change ?? 0) >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             {formatChange(change)}
           </span>
@@ -332,6 +345,8 @@ export function StockHeader({
       </div>
       <div className="inline-flex w-fit rounded-md border border-white/10 bg-black/25 p-1">
         {[
+          ["1min", "分时"],
+          ["5day", "五日"],
           ["daily", "日线"],
           ["weekly", "周线"],
           ["monthly", "月线"],
@@ -370,6 +385,17 @@ export function KlinePanel({ data, status }: { data: KlinePoint[]; status: strin
   );
 }
 
+export function HotNewsPanel({ hotNews }: { hotNews: DetailState<NewsItem[]> }) {
+  return (
+    <NewsSection
+      title="热点新闻"
+      sourceLabel="全市场"
+      icon={<Newspaper size={18} />}
+      state={hotNews}
+    />
+  );
+}
+
 export function NewsAnnouncementPanel({
   news,
   announcements,
@@ -378,16 +404,47 @@ export function NewsAnnouncementPanel({
   announcements: DetailState<NewsItem[]>;
 }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0d131a]">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <Newspaper size={18} className="text-emerald-300" />
-        <h3 className="font-medium">关联新闻与实时公告</h3>
-      </div>
-      <div className="divide-y divide-white/10">
-        <ArticleList label="新闻" state={news} />
-        <ArticleList label="公告" state={announcements} />
-      </div>
+    <div className="space-y-4">
+      <NewsSection
+        title="个股新闻"
+        sourceLabel="当前标的"
+        icon={<Bell size={18} />}
+        state={news}
+      />
+      <NewsSection
+        title="公告"
+        sourceLabel="交易所披露"
+        icon={<Info size={18} />}
+        state={announcements}
+      />
     </div>
+  );
+}
+
+function NewsSection({
+  title,
+  sourceLabel,
+  icon,
+  state,
+}: {
+  title: string;
+  sourceLabel: string;
+  icon: ReactNode;
+  state: DetailState<NewsItem[]>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-white/10 bg-[#0d131a]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-emerald-300">{icon}</span>
+          <h3 className="font-medium">{title}</h3>
+        </div>
+        <span className="shrink-0 rounded border border-white/10 px-2 py-1 text-xs text-slate-500">
+          {sourceLabel}
+        </span>
+      </div>
+      <ArticleList label={title} state={state} />
+    </section>
   );
 }
 
@@ -395,22 +452,66 @@ function ArticleList({ label, state }: { label: string; state: DetailState<NewsI
   if (state.data.length === 0) {
     return (
       <div className="px-4 py-5">
-        <EmptyInline title={`${label}数据未接入`} description="等待 data-center 提供真实数据源。" />
+        <EmptyInline title={emptyNewsTitle(label, state)} description={emptyNewsDescription(state)} />
       </div>
     );
   }
 
+  const sorted = sortNewsByTimeDesc(state.data);
+
   return (
-    <>
-      {state.data.map((item) => (
-        <article key={`${label}-${item.time}-${item.title}`} className="grid gap-2 px-4 py-3 sm:grid-cols-[70px_92px_1fr]">
-          <time className="font-mono text-sm text-slate-500">{item.time ?? "--"}</time>
-          <span className="text-sm text-slate-400">{item.source ?? label}</span>
-          <h4 className="text-sm text-slate-200">{item.title}</h4>
+    <div className="divide-y divide-white/10">
+      {sorted.map((item) => (
+        <article
+          key={`${label}-${item.time ?? item.rank ?? item.published_at}-${item.title}`}
+          className="grid gap-2 px-4 py-3 sm:grid-cols-[180px_112px_minmax(0,1fr)]"
+        >
+          <time className="whitespace-nowrap font-mono text-sm text-slate-500">
+            {formatNewsTime(item)}
+          </time>
+          <span className="truncate text-sm text-slate-400">{item.source_name ?? item.source ?? label}</span>
+          {item.url ? (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 text-sm text-slate-200 transition hover:text-emerald-300"
+            >
+              {item.title}
+            </a>
+          ) : (
+            <h4 className="min-w-0 text-sm text-slate-200">{item.title}</h4>
+          )}
         </article>
       ))}
-    </>
+    </div>
   );
+}
+
+function emptyNewsTitle(label: string, state: DetailState<NewsItem[]>) {
+  if (state.status === "loading") {
+    return `正在加载${label}`;
+  }
+  if (state.status === "error") {
+    return `${label}暂不可用`;
+  }
+  if (state.source === "not_configured") {
+    return `${label}数据未接入`;
+  }
+  return `暂无${label}`;
+}
+
+function emptyNewsDescription(state: DetailState<NewsItem[]>) {
+  if (state.status === "loading") {
+    return "正在从真实数据源同步。";
+  }
+  if (state.status === "error") {
+    return state.message ?? "数据接口短暂异常，稍后会自动刷新。";
+  }
+  if (state.source === "not_configured") {
+    return "等待 data-center 提供真实数据源。";
+  }
+  return "当前数据源暂未返回相关内容。";
 }
 
 export function OrderBookPanel({
@@ -429,21 +530,9 @@ export function OrderBookPanel({
         <h3 className="font-medium">盘口与逐笔</h3>
       </div>
       {hasOrderBook ? (
-        <div className="grid grid-cols-2 gap-3 p-4 text-sm">
-          <div className="space-y-1">
-            {orderBook.data.asks.map((level) => (
-              <div key={level.level} className="grid grid-cols-3 gap-2 font-mono text-red-300/90">
-                <span>{level.level}</span><span>{formatNumber(level.price)}</span><span>{formatAmount(level.volume)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1">
-            {orderBook.data.bids.map((level) => (
-              <div key={level.level} className="grid grid-cols-3 gap-2 font-mono text-emerald-300/90">
-                <span>{level.level}</span><span>{formatNumber(level.price)}</span><span>{formatAmount(level.volume)}</span>
-              </div>
-            ))}
-          </div>
+        <div className="grid gap-4 p-4 text-sm">
+          <OrderBookSide levels={orderBook.data.asks} tone="sell" />
+          <OrderBookSide levels={orderBook.data.bids} tone="buy" />
         </div>
       ) : (
         <div className="p-4">
@@ -464,6 +553,36 @@ export function OrderBookPanel({
           <EmptyInline title="逐笔成交未接入" description="不使用模拟逐笔数据。" />
         )}
       </div>
+    </div>
+  );
+}
+
+function OrderBookSide({
+  levels,
+  tone,
+}: {
+  levels: OrderBookData["asks"];
+  tone: "sell" | "buy";
+}) {
+  const color = tone === "sell" ? "text-red-300/90" : "text-emerald-300/90";
+
+  return (
+    <div className="space-y-1">
+      {levels.map((level) => (
+        <div
+          key={level.level}
+          className={cn(
+            "grid grid-cols-[2.75rem_minmax(5.5rem,1fr)_5rem] items-center gap-2 whitespace-nowrap font-mono",
+            color,
+          )}
+        >
+          <span className="min-w-0">{level.level}</span>
+          <span className="min-w-0 text-right tabular-nums">{formatNumber(level.price)}</span>
+          <span className="min-w-0 overflow-hidden text-ellipsis text-right tabular-nums text-slate-400">
+            {formatAmount(level.volume)}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -542,6 +661,25 @@ export function SentimentHotwordsPanel({ hotKeywords }: { hotKeywords: DetailSta
           <EmptyInline title="舆情热词未接入" description="等待真实舆情数据源，不展示模拟热词。" />
         </div>
       )}
+    </section>
+  );
+}
+
+export function NewsCenterEntryPanel() {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/3 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Newspaper size={18} className="text-emerald-300" />
+        <h3 className="font-medium">新闻中心</h3>
+      </div>
+      <p className="text-sm text-slate-500">查看全市场热点新闻，按来源与时间快速扫描市场情绪。</p>
+      <Link
+        href="/news"
+        className="mt-4 inline-flex w-full items-center justify-between rounded-md border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-200 transition hover:border-emerald-300/60 hover:bg-emerald-300/15"
+      >
+        <span>进入 News page</span>
+        <ArrowRight size={16} />
+      </Link>
     </section>
   );
 }

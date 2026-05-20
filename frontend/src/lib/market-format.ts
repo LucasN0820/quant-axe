@@ -10,6 +10,10 @@ export function formatChange(value: number | null | undefined) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+export function changeColorClass(value: number | null | undefined) {
+  return (value ?? 0) >= 0 ? "text-red-300" : "text-emerald-300";
+}
+
 export function formatNumber(value: number | string | null | undefined, digits = 2) {
   if (value === null || value === undefined || value === "") {
     return "--";
@@ -56,4 +60,3 @@ export function formatMetric(value: number | string | null | undefined, suffix =
 
   return `${formatNumber(value)}${suffix}`;
 }
-

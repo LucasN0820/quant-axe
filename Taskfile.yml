@@ -26,7 +26,7 @@ tasks:
     preconditions:
       - sh: "{{.BACKEND_PYTHON}} --version"
         msg: "Backend virtualenv is missing. Run: task backend:install"
-      - sh: "{{.BACKEND_PYTHON}} -c \"import fastapi, uvicorn\""
+      - sh: "{{.BACKEND_PYTHON}} -c \"import akshare, fastapi, uvicorn\""
         msg: "Backend dependencies are missing. Run: task backend:install"
     cmds:
       - "{{.BACKEND_PYTHON}} -m uvicorn backend.app.main:app --reload --host {{.BACKEND_HOST}} --port {{.BACKEND_PORT}}"
@@ -74,7 +74,7 @@ tasks:
   backend:check:
     desc: Check backend Python syntax
     cmds:
-      - "{{.BACKEND_PYTHON}} -m py_compile backend/app/main.py backend/app/services/market_data.py"
+      - "{{.BACKEND_PYTHON}} -m py_compile backend/app/main.py backend/app/services/market_data.py backend/app/services/news_data.py"
 
   backend:lint:
     desc: Run backend Pylint checks

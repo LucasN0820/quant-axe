@@ -1,29 +1,22 @@
-"""Real A-share market data adapters.
-
-The first production backend version uses Sina public endpoints because they
-work without API keys and cover the PRD's MVP quote/K-line/index needs.
-"""
+"""Real A-share market data adapters backed by AkShare."""
 
 from __future__ import annotations
 
-import json
-import re
-import urllib.request
-from datetime import date, timedelta
+import math
+import time
+from datetime import date, datetime, timedelta
+from functools import lru_cache
 from typing import Any, Literal
 
 
-SINA_QUOTE = "https://hq.sinajs.cn/list="
-SINA_KLINE = "https://quotes.sina.cn/cn/api/jsonp.php/var%20K=/KC_MarketDataService.getKLineData"
-
 INDEXES = [
-    ("000001", "上证指数", "s_sh000001"),
-    ("399001", "深证成指", "s_sz399001"),
-    ("399006", "创业板指", "s_sz399006"),
-    ("000688", "科创50", "s_sh000688"),
+    ("000001", "上证指数"),
+    ("399001", "深证成指"),
+    ("399006", "创业板指"),
+    ("000688", "科创50"),
 ]
 
-KlineType = Literal["daily", "weekly", "monthly", "yearly"]
+KlineType = Literal["1min", "5day", "daily", "weekly", "monthly", "yearly"]
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -33,60 +26,44 @@ def normalize_symbol(symbol: str) -> str:
     return clean
 
 
-def sina_symbol(symbol: str) -> str:
+def market_symbol(symbol: str) -> str:
     clean = normalize_symbol(symbol)
-    prefix = "sh" if clean.startswith(("5", "6", "9")) else "sz"
-    return f"{prefix}{clean}"
-
-
-def read_text(url: str, encoding: str = "utf-8") -> str:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 QuantDash/1.0",
-            "Referer": "https://finance.sina.com.cn/",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return response.read().decode(encoding, "ignore")
-
-
-def parse_hq_payload(text: str) -> list[str]:
-    match = re.search(r'="(.*)";', text, re.S)
-    if not match:
-        raise RuntimeError("invalid Sina quote payload")
-    payload = match.group(1)
-    if not payload:
-        raise RuntimeError("empty Sina quote payload")
-    return payload.split(",")
+    if clean.startswith(("6", "9")):
+        return f"sh{clean}"
+    return f"sz{clean}"
 
 
 def get_quote(symbol: str) -> dict[str, Any]:
     clean = normalize_symbol(symbol)
-    fields = parse_hq_payload(read_text(f"{SINA_QUOTE}{sina_symbol(clean)}", "gbk"))
-    previous_close = float(fields[2])
-    current = float(fields[3])
-    change_amount = round(current - previous_close, 2)
-    change_rate = round(change_amount / previous_close * 100, 2) if previous_close else 0
+    quote = bid_ask_map(clean)
+    info = individual_info_map(clean)
+    previous_close = to_float(quote.get("昨收"))
+    current = to_float(quote.get("最新"))
+    change_amount = to_float(quote.get("涨跌"))
+    if change_amount is None and current is not None and previous_close:
+        change_amount = round(current - previous_close, 2)
+    change_rate = to_float(quote.get("涨幅"))
+    if change_rate is None and change_amount is not None and previous_close:
+        change_rate = round(change_amount / previous_close * 100, 2)
 
     return {
         "symbol": clean,
-        "name": fields[0],
+        "name": stringify(info.get("股票简称")) or clean,
         "current_price": current,
         "change_rate": change_rate,
         "change_amount": change_amount,
-        "volume": int(float(fields[8])),
-        "turnover": float(fields[9]),
-        "high": float(fields[4]),
-        "low": float(fields[5]),
-        "open": float(fields[1]),
+        "volume": to_int(quote.get("总手")),
+        "turnover": to_float(quote.get("金额")),
+        "high": to_float(quote.get("最高")),
+        "low": to_float(quote.get("最低")),
+        "open": to_float(quote.get("今开")),
         "previous_close": previous_close,
         "pe_ttm": None,
         "pb": None,
-        "turnover_rate": None,
-        "trade_date": fields[30] if len(fields) > 30 else None,
-        "trade_time": fields[31] if len(fields) > 31 else None,
-        "source": "sina",
+        "turnover_rate": to_float(quote.get("换手")),
+        "trade_date": date.today().isoformat(),
+        "trade_time": datetime.now().strftime("%H:%M:%S"),
+        "source": "akshare.stock_bid_ask_em",
     }
 
 
@@ -136,94 +113,179 @@ def aggregate_period(
 
 def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
     clean = normalize_symbol(symbol)
-    url = f"{SINA_KLINE}?symbol={sina_symbol(clean)}&scale=240&ma=no&datalen=3000"
-    text = read_text(url)
-    match = re.search(r"var K=\((.*)\);?", text, re.S)
-    if not match:
-        raise RuntimeError("invalid Sina K-line payload")
+    ak = load_akshare()
 
-    raw_rows = json.loads(match.group(1))
+    if ktype in ("1min", "5day"):
+        return _get_minute_kline(clean, ktype, ak)
+
     cutoff = ten_year_cutoff()
+    try:
+        frame = with_retries(
+            lambda: ak.stock_zh_a_hist(
+                symbol=clean,
+                period="daily",
+                start_date=cutoff.strftime("%Y%m%d"),
+                end_date=date.today().strftime("%Y%m%d"),
+                adjust="",
+            )
+        )
+        source = "akshare.stock_zh_a_hist"
+    except Exception:  # pylint: disable=broad-exception-caught
+        frame = with_retries(
+            lambda: ak.stock_zh_a_hist_tx(
+                symbol=market_symbol(clean),
+                start_date=cutoff.strftime("%Y%m%d"),
+                end_date=date.today().strftime("%Y%m%d"),
+                adjust="",
+            )
+        )
+        source = "akshare.stock_zh_a_hist_tx"
+
     rows = [
         {
-            "date": item["d"],
-            "open": float(item["o"]),
-            "close": float(item["c"]),
-            "high": float(item["h"]),
-            "low": float(item["l"]),
-            "volume": int(float(item["v"])),
-            "turnover": None,
-            "amplitude": None,
-            "change_rate": None,
-            "change_amount": None,
-            "turnover_rate": None,
+            "date": stringify(first_value(item, "日期", "date")),
+            "open": to_float(first_value(item, "开盘", "open")),
+            "close": to_float(first_value(item, "收盘", "close")),
+            "high": to_float(first_value(item, "最高", "high")),
+            "low": to_float(first_value(item, "最低", "low")),
+            "volume": to_int(first_value(item, "成交量", "volume", "amount")) or 0,
+            "turnover": to_float(first_value(item, "成交额", "turnover")),
+            "amplitude": to_float(first_value(item, "振幅")),
+            "change_rate": to_float(first_value(item, "涨跌幅")),
+            "change_amount": to_float(first_value(item, "涨跌额")),
+            "turnover_rate": to_float(first_value(item, "换手率")),
         }
-        for item in raw_rows
-        if date.fromisoformat(item["d"]) >= cutoff
+        for item in frame.to_dict("records")
+        if stringify(first_value(item, "日期", "date"))
+        and date.fromisoformat(stringify(first_value(item, "日期", "date"))) >= cutoff
     ]
     data = aggregate_period(rows, ktype) if ktype in {"weekly", "monthly", "yearly"} else rows
 
     return {
         "symbol": clean,
         "type": ktype,
-        "source": "sina",
+        "source": source,
         "data": data,
     }
 
 
-def get_indexes() -> dict[str, Any]:
-    data = []
-    for symbol, name, sina_code in INDEXES:
-        fields = parse_hq_payload(read_text(f"{SINA_QUOTE}{sina_code}", "gbk"))
-        data.append(
-            {
-                "symbol": symbol,
-                "name": name,
-                "value": float(fields[1]),
-                "change_amount": float(fields[2]),
-                "change_rate": float(fields[3]),
-                "volume": float(fields[4]),
-                "turnover": float(fields[5]),
-            }
+def _get_minute_kline(symbol: str, ktype: str, ak: Any) -> dict[str, Any]:
+    """Fetch 1-minute K-line data. For '5day' mode, fetch last 5 trading days."""
+    try:
+        frame = with_retries(
+            lambda: ak.stock_zh_a_hist_min_em(symbol=symbol, period="1", adjust="")
         )
-    return {"source": "sina", "data": data}
+        source = "akshare.stock_zh_a_hist_min_em"
+    except Exception:  # pylint: disable=broad-exception-caught
+        frame = with_retries(
+            lambda: ak.stock_zh_a_minute(symbol=market_symbol(symbol), period="1", adjust="")
+        )
+        source = "akshare.stock_zh_a_minute"
+
+    rows = [
+        {
+            "date": stringify(first_value(item, "时间", "day")),
+            "open": to_float(first_value(item, "开盘", "open")),
+            "close": to_float(first_value(item, "收盘", "close")),
+            "high": to_float(first_value(item, "最高", "high")),
+            "low": to_float(first_value(item, "最低", "low")),
+            "volume": to_int(first_value(item, "成交量", "volume")) or 0,
+            "turnover": to_float(first_value(item, "成交额", "amount")),
+            "amplitude": None,
+            "change_rate": None,
+            "change_amount": None,
+            "turnover_rate": None,
+        }
+        for item in frame.to_dict("records")
+        if stringify(first_value(item, "时间", "day"))
+    ]
+
+    if ktype == "1min":
+        # Keep the latest trading day returned by the provider. This avoids
+        # filtering everything out on holidays, after-hours, or date-skewed dev machines.
+        latest_date = max((r["date"][:10] for r in rows), default="")
+        rows = [r for r in rows if r["date"].startswith(latest_date)]
+    else:
+        # 5day: keep last 5 trading days
+        unique_dates = sorted(set(r["date"][:10] for r in rows), reverse=True)
+        keep_dates = set(unique_dates[:5])
+        rows = [r for r in rows if r["date"][:10] in keep_dates]
+
+    return {
+        "symbol": symbol,
+        "type": ktype,
+        "source": source,
+        "data": rows,
+    }
+
+
+def get_indexes() -> dict[str, Any]:
+    ak = load_akshare()
+    frame = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
+    rows_by_symbol = {stringify(row.get("代码")): row for row in frame.to_dict("records")}
+    data = [
+        {
+            "symbol": symbol,
+            "name": stringify(rows_by_symbol.get(symbol, {}).get("名称")) or name,
+            "value": to_float(rows_by_symbol.get(symbol, {}).get("最新价")),
+            "change_amount": to_float(rows_by_symbol.get(symbol, {}).get("涨跌额")),
+            "change_rate": to_float(rows_by_symbol.get(symbol, {}).get("涨跌幅")),
+            "volume": to_float(rows_by_symbol.get(symbol, {}).get("成交量")),
+            "turnover": to_float(rows_by_symbol.get(symbol, {}).get("成交额")),
+        }
+        for symbol, name in INDEXES
+        if symbol in rows_by_symbol
+    ]
+    return {"source": "akshare.stock_zh_index_spot_em", "data": data}
 
 
 def search_stocks(query: str) -> dict[str, Any]:
+    text = query.strip().lower()
+    if not text:
+        return {"source": "akshare.stock_info_a_code_name", "query": query, "data": []}
+
+    data = []
+    for row in stock_code_name_rows():
+        symbol = stringify(row.get("code"))
+        name = stringify(row.get("name"))
+        if text in symbol.lower() or text in name.lower():
+            data.append({"symbol": symbol, "name": name})
+        if len(data) >= 20:
+            break
+
     return {
-        "source": "not_configured",
-        "status": "unavailable",
+        "source": "akshare.stock_info_a_code_name",
         "query": query,
-        "data": [],
+        "data": data,
     }
 
 
 def get_order_book(symbol: str) -> dict[str, Any]:
     clean = normalize_symbol(symbol)
-    fields = parse_hq_payload(read_text(f"{SINA_QUOTE}{sina_symbol(clean)}", "gbk"))
     labels = ["一", "二", "三", "四", "五"]
+    quote = bid_ask_map(clean)
 
     bids = [
         {
             "level": f"买{labels[index]}",
-            "price": float(fields[11 + index * 2]),
-            "volume": int(float(fields[10 + index * 2])),
+            "price": to_float(quote.get(f"buy_{index + 1}")),
+            "volume": to_int(quote.get(f"buy_{index + 1}_vol")),
         }
         for index in range(5)
     ]
     asks = [
         {
             "level": f"卖{labels[index]}",
-            "price": float(fields[21 + index * 2]),
-            "volume": int(float(fields[20 + index * 2])),
+            "price": to_float(quote.get(f"sell_{index + 1}")),
+            "volume": to_int(quote.get(f"sell_{index + 1}_vol")),
         }
         for index in range(5)
     ]
 
     return {
         "symbol": clean,
-        "source": "sina",
-        "updated_at": f"{fields[30]} {fields[31]}" if len(fields) > 31 else None,
+        "source": "akshare.stock_bid_ask_em",
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": {"asks": list(reversed(asks)), "bids": bids},
     }
 
@@ -253,3 +315,77 @@ def unavailable_dataset(symbol: str | None, source: str) -> dict[str, Any]:
     if symbol is not None:
         payload["symbol"] = normalize_symbol(symbol)
     return payload
+
+
+def bid_ask_map(symbol: str) -> dict[str, Any]:
+    ak = load_akshare()
+    frame = ak.stock_bid_ask_em(symbol=normalize_symbol(symbol))
+    return {stringify(row.get("item")): row.get("value") for row in frame.to_dict("records")}
+
+
+def individual_info_map(symbol: str) -> dict[str, Any]:
+    ak = load_akshare()
+    frame = ak.stock_individual_info_em(symbol=normalize_symbol(symbol))
+    return {stringify(row.get("item")): row.get("value") for row in frame.to_dict("records")}
+
+
+@lru_cache(maxsize=1)
+def stock_code_name_rows() -> tuple[dict[str, Any], ...]:
+    ak = load_akshare()
+    frame = ak.stock_info_a_code_name()
+    return tuple(frame.to_dict("records"))
+
+
+def load_akshare():
+    import akshare as ak  # pylint: disable=import-outside-toplevel
+
+    return ak
+
+
+def with_retries(factory, attempts: int = 3, delay: float = 0.25):
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return factory()
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            last_error = error
+            if attempt < attempts - 1:
+                time.sleep(delay * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("data provider call failed")
+
+
+def first_value(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(result):
+        return None
+    return result
+
+
+def to_int(value: Any) -> int | None:
+    number = to_float(value)
+    return int(number) if number is not None else None
+
+
+def stringify(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)

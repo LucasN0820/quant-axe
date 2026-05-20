@@ -2,7 +2,7 @@
 
 ## 1. 模块目标
 
-行情看板负责让用户快速理解市场状态，是 QuantDash 的入口模块。它聚合自选股、实时 quote、市场指数、K 线、新闻公告、舆情热词与财务摘要，但不负责策略计算、回测、组合构建或实盘下单。
+行情看板负责让用户快速理解市场状态，是 QuantDash 的入口模块。它聚合自选股、实时 quote、市场指数、K 线、个股新闻、公告、舆情热词与财务摘要，并提供进入独立 News page 的入口；热点新闻在独立 News page 承载，不挤占股票 K 线主工作区。
 
 ## 2. 模块边界
 
@@ -12,7 +12,7 @@
 - 展示自选股实时行情快照。
 - 展示主要市场指数。
 - 展示个股 K 线、成交量、均线。
-- 展示新闻、公告、舆情、财务指标的摘要视图。
+- 展示个股新闻、公告、舆情、财务指标的摘要视图，并在右侧边栏提供热点新闻入口。
 - 处理行情源异常时的前端降级展示。
 
 ### 2.2 模块外职责
@@ -40,10 +40,14 @@ MarketDashboardPage
   MarketIndexTicker
   StockHeader
   KlinePanel
-  NewsAnnouncementPanel
+  StockNewsAnnouncementPanel
   OrderBookPanel
+  NewsCenterEntryPanel
   FinancialSummaryPanel
   SentimentHotwordsPanel
+NewsPage
+  NewsSourceSidebar
+  HotNewsFeed
 ```
 
 ## 4. 数据模型
@@ -98,9 +102,33 @@ type WatchlistState = {
 | `GET /api/stock/intraday/[symbol]` | data-center | 分时图 |
 | `GET /api/stock/order-book/[symbol]` | data-center | 五档盘口 |
 | `GET /api/stock/trades/[symbol]` | data-center | 逐笔成交 |
-| `GET /api/stock/news/[symbol]` | data-center | 新闻流 |
+| `GET /api/news/hot` | data-center | News page 热点新闻流，参考 `news-collector` 的 NewsNow 聚合 API 方式接入 |
+| `GET /api/stock/news/[symbol]` | data-center | 个股新闻流，使用 AkShare 个股新闻接口接入 |
 | `GET /api/stock/announcements/[symbol]` | data-center | 公告流 |
 | `GET /api/intelligence/hot-keywords` | data-center | 舆情热词 |
+
+### 5.1 新闻数据分层
+
+新闻在产品展示中分为两类：
+
+- 热点新闻：面向全市场，在 `/news` 独立页面展示当前主流平台的财经、宏观、产业和交易相关热点。Dashboard 右侧边栏只保留入口，不在 K 线主工作区展示热点列表。数据中心参考 `LucasN0820/news-collector` 的实现方式，通过 NewsNow 聚合 API 按平台 ID 拉取热榜，不直接逐站解析今日头条、微博、知乎、财联社、澎湃等页面。
+- 个股新闻：面向选中股票，在 Dashboard 详情区展示该股票相关的新闻流。数据中心使用 AkShare `stock_news_em` 接入东方财富个股新闻，并按 `symbol` 标准化返回。
+
+热点新闻优先支持以下 NewsNow 平台 ID：
+
+```text
+cls-hot           财联社热门
+wallstreetcn-hot  华尔街见闻
+thepaper          澎湃新闻
+baidu             百度热搜
+weibo             微博
+zhihu             知乎
+toutiao           今日头条
+```
+
+热点新闻不等同于公告，也不承担个股精确关联。若需要在个股页展示“相关热点”，前端只能基于股票名称、简称、行业或关键词做弱关联标记，不能替代 `GET /api/stock/news/[symbol]`。
+
+新闻展示统一按可解析时间从近到远排序：优先 `published_at/time`，其次 `updated_at/captured_at`，时间缺失时保留来源排名。新闻时间戳列必须保持不换行，避免在窄屏或侧栏中拆成多行。
 
 ## 6. 关键流程
 
@@ -123,7 +151,18 @@ type WatchlistState = {
   -> 更新 selectedSymbol
   -> 读取/刷新 quote
   -> 请求 K 线
-  -> 触发新闻、公告、财务、舆情摘要刷新
+  -> 触发个股新闻、公告、财务、舆情摘要刷新
+```
+
+### 6.3 News page 热点新闻刷新
+
+```text
+进入 /news 或定时刷新
+  -> 请求 GET /api/news/hot
+  -> data-center 依次拉取配置的平台热榜
+  -> 标准化 title/url/source/rank/updated_at
+  -> 返回全市场热点新闻列表
+  -> 前端按时间倒序展示，并支持按来源过滤
 ```
 
 ## 7. 独立测试设计
@@ -140,5 +179,5 @@ type WatchlistState = {
 - 用户能看到自选股 quote、涨跌颜色、成交额。
 - 用户能切换日/周/月/年 K 线。
 - 行情源失败时保留最近一次数据或展示空状态。
+- 热点新闻与个股新闻在展示和接口上明确区分：热点新闻在 `/news`，个股新闻在 Dashboard。
 - 新闻、舆情、财务没有真实数据时不伪造结论。
-

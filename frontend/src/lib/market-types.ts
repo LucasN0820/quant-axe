@@ -1,4 +1,4 @@
-export type ChartMode = "daily" | "weekly" | "monthly" | "yearly";
+export type ChartMode = "1min" | "5day" | "daily" | "weekly" | "monthly" | "yearly";
 export type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
 export type KlinePoint = {
@@ -71,8 +71,16 @@ export type TradePrint = {
 export type NewsItem = {
   time?: string;
   source?: string;
+  source_id?: string;
+  source_name?: string;
   title: string;
   url?: string;
+  mobile_url?: string;
+  summary?: string;
+  rank?: number;
+  published_at?: string;
+  updated_at?: string;
+  captured_at?: string;
 };
 
 export type FinancialMetrics = {
@@ -93,4 +101,3 @@ export type DetailState<T> = {
   source?: string;
   message?: string;
 };
-

@@ -44,6 +44,21 @@ describe("market store", () => {
     expect(useMarketStore.getState().query).toBe("");
   });
 
+  it("seeds a loading quote cache entry when adding without quote data", () => {
+    useMarketStore.setState({
+      selectedSymbol: DEFAULT_SYMBOL,
+      watchlist: ["600519"],
+      quoteCache: {},
+      query: "600011",
+    });
+
+    useMarketStore.getState().addStock("600011", null);
+
+    expect(useMarketStore.getState().watchlist).toEqual(["600011", "600519"]);
+    expect(useMarketStore.getState().quoteCache["600011"].status).toBe("loading");
+    expect(useMarketStore.getState().quoteCache["600011"].quote).toBeNull();
+  });
+
   it("marks failed quote refreshes as stale when old data exists", () => {
     useMarketStore.setState({
       quoteCache: {
@@ -62,4 +77,3 @@ describe("market store", () => {
     expect(useMarketStore.getState().quoteCache["600519"].quote?.symbol).toBe("600519");
   });
 });
-

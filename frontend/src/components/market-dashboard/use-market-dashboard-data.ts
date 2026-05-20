@@ -17,6 +17,7 @@ import type {
 
 const QUOTE_POLL_INTERVAL_MS = 10_000;
 const INDEX_POLL_INTERVAL_MS = 30_000;
+const HOT_NEWS_POLL_INTERVAL_MS = 60_000;
 
 function emptyState<T>(data: T): DetailState<T> {
   return { status: "idle", data };
@@ -241,6 +242,43 @@ export function useKlineData() {
   }, [mode, selectedSymbol, setChartData, setChartError, setChartLoading]);
 }
 
+export function useHotNews(limit = 30) {
+  const [hotNews, setHotNews] = useState<DetailState<NewsItem[]>>(emptyState([]));
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadHotNews() {
+      if (active) {
+        setHotNews((previous) =>
+          previous.status === "ready"
+            ? { ...previous, status: "loading" }
+            : { status: "loading", data: previous.data },
+        );
+      }
+
+      const result = await Promise.allSettled([
+        fetchJson<{ data: NewsItem[]; source?: string }>(`/api/news/hot?limit=${limit}`),
+      ]);
+
+      if (!active) {
+        return;
+      }
+
+      setHotNews(toArrayState(result[0]));
+    }
+
+    void loadHotNews();
+    const timer = window.setInterval(loadHotNews, HOT_NEWS_POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [limit]);
+
+  return hotNews;
+}
+
 export function useMarketDetails(symbol: string) {
   const [orderBook, setOrderBook] = useState<DetailState<OrderBookData>>(emptyState({ asks: [], bids: [] }));
   const [trades, setTrades] = useState<DetailState<TradePrint[]>>(emptyState([]));
@@ -302,15 +340,26 @@ export function useMarketDetails(symbol: string) {
 }
 
 function toArrayState<T>(
-  result: PromiseSettledResult<{ data: T[]; source?: string }>,
+  result: PromiseSettledResult<{ data: T[]; source?: string; status?: string; message?: string }>,
 ): DetailState<T[]> {
   if (result.status === "rejected") {
     return { status: "error", data: [], message: "数据接口暂不可用" };
   }
+
+  if (result.value.status === "unavailable" && result.value.source !== "not_configured") {
+    return {
+      status: "error",
+      data: [],
+      source: result.value.source,
+      message: result.value.message ?? "数据接口暂不可用",
+    };
+  }
+
   return {
     status: result.value.data.length > 0 ? "ready" : "empty",
     data: result.value.data,
     source: result.value.source,
+    message: result.value.message,
   };
 }
 

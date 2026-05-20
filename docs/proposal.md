@@ -120,6 +120,7 @@ QuantDash
   - 支持 MA5、MA10、成交量。
   - 后续支持分时图、量比、盘口五档、逐笔成交。
 - 新闻与公告：
+  - 展示全市场热点新闻。
   - 展示个股相关新闻。
   - 展示交易所公告、财报公告、回购、减持、增持等事件。
 - 舆情监控：
@@ -138,6 +139,7 @@ GET /api/stock/kline/[symbol]?type=daily
 GET /api/stock/intraday/[symbol]
 GET /api/stock/order-book/[symbol]
 GET /api/stock/trades/[symbol]
+GET /api/news/hot
 GET /api/stock/news/[symbol]
 GET /api/stock/announcements/[symbol]
 GET /api/intelligence/hot-keywords
@@ -199,8 +201,7 @@ Serving 服务层
 #### 4.2.4 功能需求
 
 - 数据源适配：
-  - MVP 可使用 Sina 公开行情接口。
-  - 研究与回测优先接入 AkShare。
+  - MVP 行情展示、研究与回测优先接入 AkShare。
   - 后续可扩展 Tushare、东方财富、JoinQuant、RiceQuant。
 - 数据质量检查：
   - 缺失值检查。
@@ -744,7 +745,7 @@ POST /api/alerts
 
 - **框架**：Python FastAPI。
 - **数据处理**：Pandas / Polars。
-- **数据源**：Sina、AkShare，后续可扩展 Tushare、东方财富等。
+- **数据源**：AkShare，后续可扩展 Tushare、东方财富等。
 - **任务调度**：APScheduler / Celery / Prefect。
 - **回测引擎**：自研日频事件驱动回测，后续可评估 Backtrader、Qlib 等框架。
 
@@ -786,7 +787,7 @@ backend/app/
 | --- | --- |
 | 左侧边栏 | 自选股列表、搜索框、股票切换 |
 | 顶部状态栏 | 大盘指数实时状态 |
-| 中部主区域 | K 线、分时、新闻、公告、盘口 |
+| 中部主区域 | K 线、分时、热点新闻、个股新闻、公告、盘口 |
 | 右侧工具栏 | 财务估值、舆情热词、策略观察 |
 
 ### 6.2 完整系统导航
@@ -973,7 +974,7 @@ warnings
 - [ ] 增加 ST、停牌、涨跌停数据。
 - [ ] 增加 Redis 缓存。
 - [ ] 增加真实财务指标。
-- [ ] 增加真实新闻、公告、舆情数据。
+- [ ] 增加真实热点新闻、个股新闻、公告、舆情数据。
 - [ ] 增加完整股票搜索数据源。
 - [ ] 接入真实分时、五档盘口、逐笔成交。
 

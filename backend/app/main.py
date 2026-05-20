@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.services.news_data import get_hot_news, get_stock_news
 from backend.app.services.market_data import (
     get_financials,
     get_indexes,
@@ -57,7 +58,9 @@ def stock_quote(symbol: str) -> dict:
 @app.get("/api/stock/kline/{symbol}")
 def stock_kline(
     symbol: str,
-    kline_type: Literal["daily", "weekly", "monthly", "yearly"] = Query("daily", alias="type"),
+    kline_type: Literal[
+        "1min", "5day", "daily", "weekly", "monthly", "yearly"
+    ] = Query("daily", alias="type"),
 ) -> dict:
     try:
         return get_kline(symbol, kline_type)
@@ -91,9 +94,9 @@ def stock_trades(symbol: str) -> dict:
 
 
 @app.get("/api/stock/news/{symbol}")
-def stock_news(symbol: str) -> dict:
+def stock_news(symbol: str, limit: int = Query(30, ge=1, le=100)) -> dict:
     try:
-        return unavailable_dataset(symbol, "not_configured")
+        return get_stock_news(symbol, limit)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -119,3 +122,11 @@ def stock_financials(symbol: str) -> dict:
 @app.get("/api/intelligence/hot-keywords")
 def hot_keywords() -> dict:
     return unavailable_dataset(None, "not_configured")
+
+
+@app.get("/api/news/hot")
+def hot_news(
+    sources: str | None = Query(None),
+    limit: int = Query(60, ge=1, le=200),
+) -> dict:
+    return get_hot_news(sources, limit)

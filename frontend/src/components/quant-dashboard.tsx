@@ -4,6 +4,7 @@ import {
   FinancialSummaryPanel,
   KlinePanel,
   MarketIndexTicker,
+  NewsCenterEntryPanel,
   NewsAnnouncementPanel,
   OrderBookPanel,
   SentimentHotwordsPanel,
@@ -85,7 +86,10 @@ export function QuantDashboard() {
             </section>
 
             <section className="grid gap-4 lg:grid-cols-[1fr_300px]">
-              <NewsAnnouncementPanel news={details.news} announcements={details.announcements} />
+              <NewsAnnouncementPanel
+                news={details.news}
+                announcements={details.announcements}
+              />
               <OrderBookPanel orderBook={details.orderBook} trades={details.trades} />
             </section>
           </div>
@@ -93,6 +97,7 @@ export function QuantDashboard() {
 
         <aside className="border-t border-white/10 bg-[#0c1117] xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
+            <NewsCenterEntryPanel />
             <FinancialSummaryPanel quote={selectedQuote} financials={details.financials} />
             <SentimentHotwordsPanel hotKeywords={details.hotKeywords} />
             <StrategyObservationPanel />
@@ -102,4 +107,3 @@ export function QuantDashboard() {
     </main>
   );
 }
-
