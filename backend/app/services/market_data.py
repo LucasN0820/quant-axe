@@ -17,6 +17,7 @@ INDEXES = [
 ]
 
 KlineType = Literal["1min", "5day", "daily", "weekly", "monthly", "yearly"]
+AdjustType = Literal["none", "qfq", "hfq"]
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -64,6 +65,7 @@ def get_quote(symbol: str) -> dict[str, Any]:
         "trade_date": date.today().isoformat(),
         "trade_time": datetime.now().strftime("%H:%M:%S"),
         "source": "akshare.stock_bid_ask_em",
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
     }
 
 
@@ -111,9 +113,14 @@ def aggregate_period(
     return aggregated
 
 
-def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
+def get_kline(
+    symbol: str,
+    ktype: KlineType = "daily",
+    adjust: AdjustType = "none",
+) -> dict[str, Any]:
     clean = normalize_symbol(symbol)
     ak = load_akshare()
+    ak_adjust = "" if adjust == "none" else adjust
 
     if ktype in ("1min", "5day"):
         return _get_minute_kline(clean, ktype, ak)
@@ -126,7 +133,7 @@ def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
                 period="daily",
                 start_date=cutoff.strftime("%Y%m%d"),
                 end_date=date.today().strftime("%Y%m%d"),
-                adjust="",
+                adjust=ak_adjust,
             )
         )
         source = "akshare.stock_zh_a_hist"
@@ -136,7 +143,7 @@ def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
                 symbol=market_symbol(clean),
                 start_date=cutoff.strftime("%Y%m%d"),
                 end_date=date.today().strftime("%Y%m%d"),
-                adjust="",
+                adjust=ak_adjust,
             )
         )
         source = "akshare.stock_zh_a_hist_tx"
@@ -164,7 +171,9 @@ def get_kline(symbol: str, ktype: KlineType = "daily") -> dict[str, Any]:
     return {
         "symbol": clean,
         "type": ktype,
+        "adjust": adjust,
         "source": source,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": data,
     }
 
@@ -214,7 +223,9 @@ def _get_minute_kline(symbol: str, ktype: str, ak: Any) -> dict[str, Any]:
     return {
         "symbol": symbol,
         "type": ktype,
+        "adjust": "none",
         "source": source,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": rows,
     }
 
@@ -236,7 +247,11 @@ def get_indexes() -> dict[str, Any]:
         for symbol, name in INDEXES
         if symbol in rows_by_symbol
     ]
-    return {"source": "akshare.stock_zh_index_spot_em", "data": data}
+    return {
+        "source": "akshare.stock_zh_index_spot_em",
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "data": data,
+    }
 
 
 def search_stocks(query: str) -> dict[str, Any]:
@@ -256,6 +271,7 @@ def search_stocks(query: str) -> dict[str, Any]:
     return {
         "source": "akshare.stock_info_a_code_name",
         "query": query,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": data,
     }
 

@@ -5,11 +5,22 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.services.data_center import (
+    data_health,
+    get_announcements,
+    get_served_kline,
+    list_data_jobs,
+    quality_daily_bars,
+    run_data_job,
+    search_stock_profiles,
+    stock_profile,
+    stock_status,
+    trading_days,
+)
 from backend.app.services.news_data import get_hot_news, get_stock_news
 from backend.app.services.market_data import (
     get_financials,
     get_indexes,
-    get_kline,
     get_order_book,
     get_quote,
     search_stocks,
@@ -27,7 +38,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -35,6 +46,24 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "quantdash-market-api"}
+
+
+@app.get("/api/data/health")
+def data_center_health() -> dict:
+    return data_health()
+
+
+@app.get("/api/data/jobs")
+def data_jobs() -> dict:
+    return list_data_jobs()
+
+
+@app.post("/api/data/jobs/run")
+def data_jobs_run(job_type: str = Query(..., alias="type")) -> dict:
+    try:
+        return run_data_job(job_type)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/market/indexes")
@@ -61,9 +90,10 @@ def stock_kline(
     kline_type: Literal[
         "1min", "5day", "daily", "weekly", "monthly", "yearly"
     ] = Query("daily", alias="type"),
+    adjust: Literal["none", "qfq", "hfq"] = Query("none"),
 ) -> dict:
     try:
-        return get_kline(symbol, kline_type)
+        return get_served_kline(symbol, kline_type, adjust)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
@@ -73,6 +103,58 @@ def stock_kline(
 @app.get("/api/stocks/search")
 def stocks_search(q: str = Query("")) -> dict:
     return search_stocks(q)
+
+
+@app.get("/api/stocks/profiles")
+def stocks_profiles_search(q: str = Query(""), limit: int = Query(20, ge=1, le=100)) -> dict:
+    return search_stock_profiles(q, limit)
+
+
+@app.get("/api/stocks/{symbol}/profile")
+def stocks_profile(symbol: str) -> dict:
+    try:
+        return stock_profile(symbol)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/calendar/trading-days")
+def calendar_trading_days(
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    exchange: str = Query("SSE"),
+) -> dict:
+    try:
+        return trading_days(start, end, exchange)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/stock/status/{symbol}")
+def stock_daily_status(symbol: str, target_date: str | None = Query(None, alias="date")) -> dict:
+    try:
+        return stock_status(symbol, target_date)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/data/quality/daily-bars/{symbol}")
+def data_quality_daily_bars(
+    symbol: str,
+    adjust: Literal["none", "qfq", "hfq"] = Query("none"),
+) -> dict:
+    try:
+        return quality_daily_bars(symbol, adjust)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 @app.get("/api/stock/order-book/{symbol}")
@@ -102,9 +184,9 @@ def stock_news(symbol: str, limit: int = Query(30, ge=1, le=100)) -> dict:
 
 
 @app.get("/api/stock/announcements/{symbol}")
-def stock_announcements(symbol: str) -> dict:
+def stock_announcements(symbol: str, limit: int = Query(30, ge=1, le=100)) -> dict:
     try:
-        return unavailable_dataset(symbol, "not_configured")
+        return get_announcements(symbol, limit)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

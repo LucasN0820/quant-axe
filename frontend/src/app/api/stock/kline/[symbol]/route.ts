@@ -8,8 +8,10 @@ export async function GET(
   const { symbol } = await params;
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type") ?? "daily";
+  const adjust = searchParams.get("adjust") ?? "none";
   try {
-    const data = await fetchMarketData(`/api/stock/kline/${symbol}?type=${type}`);
+    const query = new URLSearchParams({ type, adjust });
+    const data = await fetchMarketData(`/api/stock/kline/${symbol}?${query.toString()}`);
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(

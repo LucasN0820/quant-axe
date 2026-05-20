@@ -74,7 +74,12 @@ tasks:
   backend:check:
     desc: Check backend Python syntax
     cmds:
-      - "{{.BACKEND_PYTHON}} -m py_compile backend/app/main.py backend/app/services/market_data.py backend/app/services/news_data.py"
+      - "{{.BACKEND_PYTHON}} -m py_compile backend/app/main.py backend/app/services/*.py"
+
+  backend:test:
+    desc: Run backend unit tests
+    cmds:
+      - "{{.BACKEND_PYTHON}} -m unittest discover backend -p '*_test.py'"
 
   backend:lint:
     desc: Run backend Pylint checks
@@ -90,6 +95,7 @@ tasks:
     desc: Run project checks
     deps:
       - task: backend:check
+      - task: backend:test
       - task: backend:lint
       - task: lint
       - task: build

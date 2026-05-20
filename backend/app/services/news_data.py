@@ -1,4 +1,5 @@
 """News and sentiment data adapters."""
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.app.services.market_data import normalize_symbol
+from backend.app.services.storage import insert_hot_news_items, insert_news_items, save_raw_payload
 
 
 NEWSNOW_API_BASE = os.environ.get("NEWSNOW_API_BASE", "https://newsnow.busiyi.world").rstrip("/")
@@ -112,6 +114,11 @@ def get_hot_news(sources: str | None = None, limit: int = 60) -> dict[str, Any]:
 
     bounded_limit = max(1, min(limit, 200))
     rows.sort(key=news_sort_key, reverse=True)
+    try:
+        insert_hot_news_items(rows)
+        save_raw_payload("newsnow", "hot_news", rows)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
     payload_status = "ready" if rows else "unavailable"
     return {
         "source": "newsnow",
@@ -158,6 +165,11 @@ def get_stock_news(symbol: str, limit: int = 30) -> dict[str, Any]:
 
     bounded_limit = max(1, min(limit, 100))
     rows.sort(key=news_sort_key, reverse=True)
+    try:
+        insert_news_items(rows, "stock_news")
+        save_raw_payload("akshare", "stock_news_em", rows, clean)
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
     return {
         "symbol": clean,
         "source": "akshare.stock_news_em",
