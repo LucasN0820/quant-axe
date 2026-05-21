@@ -1,5 +1,8 @@
 version: "3"
 
+dotenv:
+  - .env.local
+
 vars:
   FRONTEND_DIR: frontend
   BACKEND_VENV: .venv
@@ -7,7 +10,6 @@ vars:
   BACKEND_PYTHON: '{{if eq OS "windows"}}{{.BACKEND_VENV}}/Scripts/python.exe{{else}}{{.BACKEND_VENV}}/bin/python{{end}}'
   BACKEND_HOST: 127.0.0.1
   BACKEND_PORT: 8000
-  MARKET_API_BASE_URL: "http://{{.BACKEND_HOST}}:{{.BACKEND_PORT}}"
 
 tasks:
   default:
@@ -34,8 +36,6 @@ tasks:
   frontend:dev:
     desc: Start the Next.js frontend
     dir: "{{.FRONTEND_DIR}}"
-    env:
-      MARKET_API_BASE_URL: "{{.MARKET_API_BASE_URL}}"
     cmds:
       - npm run dev
 
@@ -66,8 +66,6 @@ tasks:
   build:
     desc: Build the frontend
     dir: "{{.FRONTEND_DIR}}"
-    env:
-      MARKET_API_BASE_URL: "{{.MARKET_API_BASE_URL}}"
     cmds:
       - npm run build
 

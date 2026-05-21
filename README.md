@@ -120,13 +120,13 @@ curl "http://localhost:3000/api/stock/kline/600519?type=daily"
 curl http://localhost:3000/api/market/indexes
 ```
 
-数据中心本地存储相关环境变量：
+项目根目录提供环境变量模板：
 
 ```bash
-export POSTGRES_DSN="postgresql://quantdash:quantdash@127.0.0.1:5432/quantdash"
-export REDIS_URL="redis://127.0.0.1:6379/0"
-export TUSHARE_TOKEN="你的 Tushare Token"
+cp .env.example .env.local
 ```
+
+`task dev`、`task build` 和后端检查任务会通过 `Taskfile.yml` 加载根目录 `.env.local`，不需要手动 `export`。`.env.local` 已加入 `.gitignore`，用于保存本机数据库、Redis 和 Tushare token 等私有配置。
 
 初始化 PostgreSQL 表结构：
 

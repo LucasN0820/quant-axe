@@ -36,10 +36,11 @@ FINANCIALS_CRON_HOUR = int(os.environ.get("FINANCIALS_CRON_HOUR", "20"))
 # Symbols refreshed by the scheduler's `daily_bars_refresh` and
 # `financials_refresh` jobs. Keeping this list small keeps the personal-account
 # Tushare quota usage predictable while still warming the most-watched names.
-DAILY_REFRESH_WATCHLIST = (
-    "600519",
-    "300750",
-    "688981",
-    "000001",
-    "601318",
+DAILY_REFRESH_WATCHLIST = tuple(
+    symbol.strip()
+    for symbol in os.environ.get(
+        "DAILY_REFRESH_WATCHLIST",
+        "600519,300750,688981,000001,601318",
+    ).split(",")
+    if symbol.strip()
 )
