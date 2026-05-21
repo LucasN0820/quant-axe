@@ -97,3 +97,18 @@ tasks:
       - task: backend:lint
       - task: lint
       - task: build
+
+  docker:dev:
+    desc: Start frontend, backend, PostgreSQL, and Redis with Docker Compose
+    cmds:
+      - docker compose up --build
+
+  docker:down:
+    desc: Stop Docker Compose services
+    cmds:
+      - docker compose down
+
+  docker:logs:
+    desc: Follow Docker Compose logs
+    cmds:
+      - docker compose logs -f

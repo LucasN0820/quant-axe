@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quantdash-postgres
+    environment:
+      POSTGRES_USER: quantdash
+      POSTGRES_PASSWORD: quantdash
+      POSTGRES_DB: quantdash
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantdash -d quantdash"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: quantdash-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  db-init:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: quantdash-db-init
+    env_file:
+      - .env.local
+    environment:
+      POSTGRES_DSN: postgresql://quantdash:quantdash@postgres:5432/quantdash
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-c", "from backend.app.services.storage import ensure_schema; print(ensure_schema())"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: quantdash-backend
+    env_file:
+      - .env.local
+    environment:
+      POSTGRES_DSN: postgresql://quantdash:quantdash@postgres:5432/quantdash
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: quantdash-frontend
+    env_file:
+      - .env.local
+    environment:
+      MARKET_API_BASE_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -71,6 +71,14 @@ http://127.0.0.1:8000
 
 ## 启动方式
 
+项目根目录提供环境变量模板：
+
+```bash
+cp .env.example .env.local
+```
+
+`task dev`、`task build`、Docker Compose 和后端检查任务会读取根目录 `.env.local`。`.env.local` 已加入 `.gitignore`，用于保存本机数据库、Redis 和 Tushare token 等私有配置。
+
 项目使用 [Task](https://taskfile.dev/) 管理开发命令。需要先安装 `task`：
 
 ```bash
@@ -106,6 +114,24 @@ task dev
 - 前端：http://localhost:3000
 - 后端：http://127.0.0.1:8000
 
+也可以使用 Docker Compose 一条命令启动前端、后端、PostgreSQL 和 Redis：
+
+```bash
+docker compose up --build
+```
+
+前端容器启动日志会打印：
+
+```text
+QuantDash frontend is ready at: http://localhost:3000
+```
+
+如果安装了 `task`，等价命令是：
+
+```bash
+task docker:dev
+```
+
 后端健康检查：
 
 ```bash
@@ -120,15 +146,7 @@ curl "http://localhost:3000/api/stock/kline/600519?type=daily"
 curl http://localhost:3000/api/market/indexes
 ```
 
-项目根目录提供环境变量模板：
-
-```bash
-cp .env.example .env.local
-```
-
-`task dev`、`task build` 和后端检查任务会通过 `Taskfile.yml` 加载根目录 `.env.local`，不需要手动 `export`。`.env.local` 已加入 `.gitignore`，用于保存本机数据库、Redis 和 Tushare token 等私有配置。
-
-初始化 PostgreSQL 表结构：
+本地非 Docker 启动时，初始化 PostgreSQL 表结构：
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/data/jobs/run?type=initialize_storage"
@@ -140,6 +158,8 @@ curl -X POST "http://127.0.0.1:8000/api/data/jobs/run?type=initialize_storage"
 task --list       # 查看所有任务
 task dev          # 并行启动前后端
 task check        # 后端语法/Pylint 检查 + 前端 lint/build
+task docker:dev   # Docker Compose 启动前端、后端、PostgreSQL、Redis
+task docker:down  # 停止 Docker Compose 服务
 task backend:lint # 后端 Pylint 异味检测
 task lint         # 前端 lint
 task build        # 前端生产构建
