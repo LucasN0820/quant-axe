@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import type { KlinePoint } from "@/lib/market-types";
 
@@ -18,23 +19,62 @@ function movingAverage(dayCount: number, data: KlinePoint[]) {
   });
 }
 
+function readChartTheme() {
+  if (typeof window === "undefined") {
+    return {
+      foreground: "#141413",
+      muted: "#87867f",
+      border: "#dedcd1",
+      surface: "#ffffff",
+      accent: "#c96442",
+      down: "#2f7f68",
+    };
+  }
+
+  const styles = window.getComputedStyle(document.documentElement);
+  return {
+    foreground: styles.getPropertyValue("--foreground").trim() || "#141413",
+    muted: styles.getPropertyValue("--muted").trim() || "#87867f",
+    border: styles.getPropertyValue("--border").trim() || "#dedcd1",
+    surface: styles.getPropertyValue("--surface").trim() || "#ffffff",
+    accent: styles.getPropertyValue("--accent").trim() || "#c96442",
+    down: styles.getPropertyValue("--chart-down").trim() || "#2f7f68",
+  };
+}
+
 export function KlineChart({ data }: KlineChartProps) {
+  const [chartTheme, setChartTheme] = useState(readChartTheme);
   const visibleData = data;
   const start = visibleData.length > 80 ? 45 : 0;
-  const option = {
+
+  useEffect(() => {
+    const syncChartTheme = () => setChartTheme(readChartTheme());
+    const frame = window.requestAnimationFrame(syncChartTheme);
+    const observer = new MutationObserver(syncChartTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
+
+  const option = useMemo(() => ({
     animation: true,
     backgroundColor: "transparent",
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "cross" },
-      backgroundColor: "rgba(10, 14, 18, 0.92)",
-      borderColor: "rgba(148, 163, 184, 0.22)",
-      textStyle: { color: "#d9e4ef" },
+      backgroundColor: chartTheme.surface,
+      borderColor: chartTheme.border,
+      textStyle: { color: chartTheme.foreground },
     },
     legend: {
       top: 4,
       right: 12,
-      textStyle: { color: "#8fa2b7" },
+      textStyle: { color: chartTheme.muted },
       data: ["K线", "MA5", "MA10", "成交量"],
     },
     grid: [
@@ -60,24 +100,24 @@ export function KlineChart({ data }: KlineChartProps) {
         minSpan: 8,
         height: 22,
         bottom: 10,
-        borderColor: "rgba(148, 163, 184, 0.18)",
-        fillerColor: "rgba(70, 211, 165, 0.16)",
+        borderColor: chartTheme.border,
+        fillerColor: "rgba(201, 100, 66, 0.16)",
         handleStyle: {
-          color: "#46d3a5",
-          borderColor: "#46d3a5",
+          color: chartTheme.accent,
+          borderColor: chartTheme.accent,
         },
         moveHandleStyle: {
-          color: "rgba(70, 211, 165, 0.35)",
+          color: "rgba(201, 100, 66, 0.28)",
         },
         dataBackground: {
-          lineStyle: { color: "rgba(148, 163, 184, 0.24)" },
-          areaStyle: { color: "rgba(148, 163, 184, 0.08)" },
+          lineStyle: { color: chartTheme.border },
+          areaStyle: { color: "rgba(135, 134, 127, 0.10)" },
         },
         selectedDataBackground: {
-          lineStyle: { color: "rgba(70, 211, 165, 0.38)" },
-          areaStyle: { color: "rgba(70, 211, 165, 0.12)" },
+          lineStyle: { color: chartTheme.accent },
+          areaStyle: { color: "rgba(201, 100, 66, 0.12)" },
         },
-        textStyle: { color: "#6f8196" },
+        textStyle: { color: chartTheme.muted },
       },
     ],
     xAxis: [
@@ -85,29 +125,29 @@ export function KlineChart({ data }: KlineChartProps) {
         type: "category",
         data: visibleData.map((point) => point.date),
         boundaryGap: true,
-        axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.24)" } },
-        axisLabel: { color: "#6f8196" },
+        axisLine: { lineStyle: { color: chartTheme.border } },
+        axisLabel: { color: chartTheme.muted },
       },
       {
         type: "category",
         gridIndex: 1,
         data: visibleData.map((point) => point.date),
         axisLabel: { show: false },
-        axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
+        axisLine: { lineStyle: { color: chartTheme.border } },
       },
     ],
     yAxis: [
       {
         scale: true,
-        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.10)" } },
-        axisLabel: { color: "#6f8196" },
+        splitLine: { lineStyle: { color: "rgba(135, 134, 127, 0.16)" } },
+        axisLabel: { color: chartTheme.muted },
       },
       {
         scale: true,
         gridIndex: 1,
         splitNumber: 2,
         splitLine: { show: false },
-        axisLabel: { color: "#6f8196" },
+        axisLabel: { color: chartTheme.muted },
       },
     ],
     series: [
@@ -116,10 +156,10 @@ export function KlineChart({ data }: KlineChartProps) {
         type: "candlestick",
         data: visibleData.map((point) => [point.open, point.close, point.low, point.high]),
         itemStyle: {
-          color: "#26a69a",
-          color0: "#ef5350",
-          borderColor: "#26a69a",
-          borderColor0: "#ef5350",
+          color: chartTheme.down,
+          color0: chartTheme.accent,
+          borderColor: chartTheme.down,
+          borderColor0: chartTheme.accent,
         },
       },
       {
@@ -128,7 +168,7 @@ export function KlineChart({ data }: KlineChartProps) {
         data: movingAverage(5, visibleData),
         smooth: true,
         symbol: "none",
-        lineStyle: { width: 1.6, color: "#f2c94c" },
+        lineStyle: { width: 1.6, color: "#b86f22" },
       },
       {
         name: "MA10",
@@ -136,7 +176,7 @@ export function KlineChart({ data }: KlineChartProps) {
         data: movingAverage(10, visibleData),
         smooth: true,
         symbol: "none",
-        lineStyle: { width: 1.6, color: "#4dabf7" },
+        lineStyle: { width: 1.6, color: "#629987" },
       },
       {
         name: "成交量",
@@ -144,10 +184,10 @@ export function KlineChart({ data }: KlineChartProps) {
         xAxisIndex: 1,
         yAxisIndex: 1,
         data: visibleData.map((point) => point.volume),
-        itemStyle: { color: "rgba(70, 211, 165, 0.38)" },
+        itemStyle: { color: "rgba(201, 100, 66, 0.32)" },
       },
     ],
-  };
+  }), [chartTheme, start, visibleData]);
 
   return (
     <ReactECharts

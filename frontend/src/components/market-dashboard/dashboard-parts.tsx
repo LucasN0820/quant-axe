@@ -10,6 +10,7 @@ import {
   CandlestickChart,
   Clock3,
   Info,
+  Layers3,
   Newspaper,
   Plus,
   Search,
@@ -19,6 +20,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { KlineChart } from "@/components/kline-chart";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   changeColorClass,
   cn,
@@ -295,9 +297,12 @@ export function MarketIndexTicker({
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Activity size={15} className="text-emerald-300" />
-          <span>{dataStatus} · Quote 10s / Index 30s 轮询</span>
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <Activity size={15} className="text-emerald-300" />
+            <span>{dataStatus} · Quote 10s / Index 30s 轮询</span>
+          </div>
+          <ThemeToggle />
         </div>
       </div>
     </header>
@@ -715,6 +720,16 @@ export function StrategyObservationPanel() {
         <p>价格、涨跌幅、指数、K 线和五档盘口通过 BFF 转发到 Python 数据服务。</p>
         <p>新闻、公告、逐笔、舆情和财务缺失时使用空状态，避免用 mock 数据制造结论。</p>
       </div>
+      <Link
+        href="/universes"
+        className="mt-4 inline-flex w-full items-center justify-between rounded-md border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-200 transition hover:border-emerald-300/60 hover:bg-emerald-300/15"
+      >
+        <span className="inline-flex items-center gap-2">
+          <Layers3 size={15} />
+          Universe Center
+        </span>
+        <ArrowRight size={16} />
+      </Link>
     </section>
   );
 }

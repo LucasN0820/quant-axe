@@ -11,7 +11,7 @@ export function formatChange(value: number | null | undefined) {
 }
 
 export function changeColorClass(value: number | null | undefined) {
-  return (value ?? 0) >= 0 ? "text-red-300" : "text-emerald-300";
+  return (value ?? 0) >= 0 ? "text-market-up" : "text-market-down";
 }
 
 export function formatNumber(value: number | string | null | undefined, digits = 2) {

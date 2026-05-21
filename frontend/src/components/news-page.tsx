@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useHotNews } from "@/components/market-dashboard/use-market-dashboard-data";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/market-format";
 import type { NewsItem } from "@/lib/market-types";
 import { formatNewsTime, newsTimestamp, sortNewsByTimeDesc } from "@/lib/news-utils";
@@ -60,6 +61,7 @@ export function NewsPage() {
             <span className="hidden rounded-md border border-white/10 px-3 py-2 text-xs text-slate-500 sm:inline">
               {lastUpdated ? `更新 ${lastUpdated}` : "等待数据"}
             </span>
+            <ThemeToggle />
             <button
               type="button"
               onClick={() => window.location.reload()}

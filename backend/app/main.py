@@ -29,6 +29,16 @@ from backend.app.services.news_data import get_hot_news, get_stock_news
 from backend.app.services.scheduler import scheduler_status, start_scheduler, stop_scheduler
 from backend.app.services.search_data import search_universe
 from backend.app.services.sentiment_data import get_hot_keywords
+from backend.app.services.universe_center import (
+    create_universe,
+    get_universe as get_universe_payload,
+    list_universes,
+    preview_universe,
+    remove_universe,
+    snapshot_universe,
+    universe_stocks,
+    update_universe,
+)
 
 
 @asynccontextmanager
@@ -51,7 +61,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -238,3 +248,78 @@ def hot_news(
     limit: int = Query(60, ge=1, le=200),
 ) -> dict:
     return get_hot_news(sources, limit)
+
+
+@app.get("/api/universes")
+def universes_list() -> dict:
+    return list_universes()
+
+
+@app.post("/api/universes")
+def universes_create(payload: dict) -> dict:
+    try:
+        return create_universe(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/universes/{universe_id}")
+def universes_get(universe_id: str) -> dict:
+    try:
+        return get_universe_payload(universe_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.patch("/api/universes/{universe_id}")
+def universes_update(universe_id: str, payload: dict) -> dict:
+    try:
+        return update_universe(universe_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.delete("/api/universes/{universe_id}")
+def universes_delete(universe_id: str) -> dict:
+    try:
+        return remove_universe(universe_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/universes/{universe_id}/stocks")
+def universes_stocks(universe_id: str, target_date: str = Query(..., alias="date")) -> dict:
+    try:
+        return universe_stocks(universe_id, target_date)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.post("/api/universes/{universe_id}/preview")
+def universes_preview(universe_id: str, payload: dict) -> dict:
+    try:
+        return preview_universe(universe_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.post("/api/universes/{universe_id}/snapshot")
+def universes_snapshot(universe_id: str, payload: dict) -> dict:
+    try:
+        return snapshot_universe(universe_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error

@@ -98,9 +98,9 @@ export function QuantDashboard() {
         <aside className="border-t border-white/10 bg-[#0c1117] xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
             <NewsCenterEntryPanel />
+            <StrategyObservationPanel />
             <FinancialSummaryPanel quote={selectedQuote} financials={details.financials} />
             <SentimentHotwordsPanel hotKeywords={details.hotKeywords} />
-            <StrategyObservationPanel />
           </div>
         </aside>
       </div>

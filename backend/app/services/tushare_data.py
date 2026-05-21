@@ -1,4 +1,5 @@
 """Tushare provider adapter for reference, announcement, and financial data."""
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -48,6 +49,42 @@ def fetch_tushare_stock_profiles() -> list[dict[str, Any]]:
                 "pinyin": None,
                 "source": "tushare.stock_basic",
                 "updated_at": utc_now(),
+            }
+        )
+    return rows
+
+
+def fetch_tushare_index_members(index_code: str, target_date: str) -> list[dict[str, Any]]:
+    """Fetch the latest index weights at or before target_date without looking ahead."""
+    pro = tushare_client()
+    end = date.fromisoformat(target_date)
+    start = end - timedelta(days=400)
+    frame = pro.index_weight(
+        index_code=index_code,
+        start_date=start.strftime("%Y%m%d"),
+        end_date=end.strftime("%Y%m%d"),
+    )
+    records = frame.to_dict("records") if hasattr(frame, "to_dict") else []
+    if not records:
+        return []
+
+    latest_trade_date = max(str(row.get("trade_date") or "") for row in records)
+    rows = []
+    for row in records:
+        if str(row.get("trade_date") or "") != latest_trade_date:
+            continue
+        symbol = str(row.get("con_code") or "").split(".", maxsplit=1)[0].zfill(6)
+        if len(symbol) != 6:
+            continue
+        rows.append(
+            {
+                "symbol": symbol,
+                "name": str(row.get("name") or symbol),
+                "exchange": infer_exchange(symbol),
+                "listed_at": None,
+                "source": "tushare.index_weight",
+                "trade_date": normalize_provider_date(latest_trade_date),
+                "weight": numeric(row.get("weight")),
             }
         )
     return rows
