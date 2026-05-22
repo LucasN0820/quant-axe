@@ -69,7 +69,7 @@ def fetch_newsnow_source(
     if status not in {"success", "cache"}:
         raise RuntimeError(f"unexpected NewsNow status for {source_id}: {status}")
 
-    updated_at = stringify(data.get("updatedTime"))
+    updated_at = normalize_news_datetime(data.get("updatedTime"))
     rows = []
     seen_titles: set[str] = set()
     now = captured_at()
@@ -210,6 +210,11 @@ def parse_news_datetime(value: Any) -> float | None:
     text = stringify(value).strip()
     if not text:
         return None
+    if text.isdigit():
+        number = int(text)
+        if number > 10_000_000_000:
+            number = number // 1000
+        return float(number)
     normalized = text.replace("Z", "+00:00")
     if " " in normalized and "T" not in normalized:
         normalized = normalized.replace(" ", "T", 1)
@@ -217,6 +222,13 @@ def parse_news_datetime(value: Any) -> float | None:
         return datetime.fromisoformat(normalized).timestamp()
     except ValueError:
         return None
+
+
+def normalize_news_datetime(value: Any) -> str | None:
+    timestamp = parse_news_datetime(value)
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
 
 def stringify(value: Any) -> str:

@@ -13,6 +13,10 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
 TUSHARE_TOKEN = os.environ.get("TUSHARE_TOKEN", "")
 
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "300"))
+QUOTE_CACHE_TTL_SECONDS = int(os.environ.get("QUOTE_CACHE_TTL_SECONDS", "3"))
+INDEX_CACHE_TTL_SECONDS = int(os.environ.get("INDEX_CACHE_TTL_SECONDS", "5"))
+QUOTE_BATCH_MAX_SYMBOLS = int(os.environ.get("QUOTE_BATCH_MAX_SYMBOLS", "50"))
+QUOTE_PROVIDER_MAX_WORKERS = int(os.environ.get("QUOTE_PROVIDER_MAX_WORKERS", "3"))
 
 # APScheduler runtime control. When disabled the FastAPI app starts without
 # any background jobs, which is the safe default for local development and

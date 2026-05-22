@@ -15,9 +15,9 @@ import type {
   TradePrint,
 } from "@/lib/market-types";
 
-const QUOTE_POLL_INTERVAL_MS = 10_000;
-const INDEX_POLL_INTERVAL_MS = 30_000;
-const HOT_NEWS_POLL_INTERVAL_MS = 60_000;
+const QUOTE_POLL_INTERVAL_MS = 5_000;
+const INDEX_POLL_INTERVAL_MS = 5_000;
+const HOT_NEWS_POLL_INTERVAL_MS = 5_000;
 
 function emptyState<T>(data: T): DetailState<T> {
   return { status: "idle", data };
@@ -84,6 +84,16 @@ export function useMarketIndexes() {
     };
   }, [setDataUnavailable, setIndexesReady]);
 }
+
+type MarketSnapshotPayload = {
+  quotes: {
+    data: Quote[];
+    failed?: Array<{ symbol: string; error: string }>;
+  };
+  indexes: {
+    data: MarketIndex[];
+  };
+};
 
 export function useStockLookup(query: string) {
   const setLookupIdle = useMarketStore((state) => state.setLookupIdle);
@@ -207,6 +217,59 @@ export function useQuotePolling() {
       window.clearInterval(timer);
     };
   }, [markQuotesLoading, mergeQuoteResults, symbols]);
+}
+
+export function useMarketSnapshotPolling() {
+  const selectedSymbol = useMarketStore((state) => state.selectedSymbol);
+  const watchlist = useMarketStore((state) => state.watchlist);
+  const markQuotesLoading = useMarketStore((state) => state.markQuotesLoading);
+  const mergeQuoteResults = useMarketStore((state) => state.mergeQuoteResults);
+  const setIndexesReady = useMarketStore((state) => state.setIndexesReady);
+  const setDataUnavailable = useMarketStore((state) => state.setDataUnavailable);
+
+  const symbols = useMemo(
+    () => Array.from(new Set([selectedSymbol, ...watchlist])),
+    [selectedSymbol, watchlist],
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSnapshot() {
+      markQuotesLoading(symbols);
+      try {
+        const query = new URLSearchParams({ symbols: symbols.join(",") });
+        const payload = await fetchJson<MarketSnapshotPayload>(
+          `/api/market/snapshot?${query.toString()}`,
+        );
+        if (!active) {
+          return;
+        }
+        setIndexesReady(payload.indexes.data ?? []);
+        const entries = (payload.quotes.data ?? []).map((quote) => [quote.symbol, quote] as const);
+        const failedSymbols = (payload.quotes.failed ?? []).map((item) => item.symbol);
+        mergeQuoteResults(entries, failedSymbols);
+      } catch {
+        if (active) {
+          setDataUnavailable();
+          mergeQuoteResults([], symbols);
+        }
+      }
+    }
+
+    void loadSnapshot();
+    const timer = window.setInterval(loadSnapshot, QUOTE_POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    markQuotesLoading,
+    mergeQuoteResults,
+    setDataUnavailable,
+    setIndexesReady,
+    symbols,
+  ]);
 }
 
 export function useKlineData() {

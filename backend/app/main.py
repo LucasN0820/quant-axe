@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.services.data_center import (
     data_health,
     get_announcements,
+    get_market_snapshot,
     get_served_kline,
+    get_served_indexes,
+    get_served_quote,
+    get_served_quotes,
     list_data_jobs,
     quality_daily_bars,
     run_data_job,
@@ -21,9 +25,7 @@ from backend.app.services.data_center import (
 from backend.app.services.financials_data import get_financial_metrics
 from backend.app.services.intraday_data import get_intraday, get_trade_prints
 from backend.app.services.market_data import (
-    get_indexes,
     get_order_book,
-    get_quote,
 )
 from backend.app.services.news_data import get_hot_news, get_stock_news
 from backend.app.services.scheduler import scheduler_status, start_scheduler, stop_scheduler
@@ -97,7 +99,17 @@ def data_scheduler() -> dict:
 @app.get("/api/market/indexes")
 def market_indexes() -> dict:
     try:
-        return get_indexes()
+        return get_served_indexes()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/market/snapshot")
+def market_snapshot(symbols: str = Query("")) -> dict:
+    try:
+        return get_market_snapshot(symbols)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
@@ -105,7 +117,17 @@ def market_indexes() -> dict:
 @app.get("/api/stock/quote/{symbol}")
 def stock_quote(symbol: str) -> dict:
     try:
-        return get_quote(symbol)
+        return get_served_quote(symbol)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/stock/quotes")
+def stock_quotes(symbols: str = Query(...)) -> dict:
+    try:
+        return get_served_quotes(symbols)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:

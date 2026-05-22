@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import copy
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Any
 
+from backend.app.services.config import (
+    INDEX_CACHE_TTL_SECONDS,
+    QUOTE_BATCH_MAX_SYMBOLS,
+    QUOTE_CACHE_TTL_SECONDS,
+    QUOTE_PROVIDER_MAX_WORKERS,
+)
 from backend.app.services.data_quality import open_date_set, summarize_issues, validate_daily_bars
 from backend.app.services.market_data import (
+    get_indexes,
     get_kline,
+    get_quote,
     individual_info_map,
     normalize_symbol,
     stock_code_name_rows,
@@ -45,6 +56,8 @@ DATA_JOB_DEFINITIONS = {
     "financials": "Refresh Tushare valuation and quality metrics",
     "quality_daily_bars": "Run daily bar quality checks",
 }
+
+RUNTIME_CACHE: dict[str, tuple[float, Any]] = {}
 
 
 def data_health() -> dict[str, Any]:
@@ -238,6 +251,161 @@ def get_served_kline(symbol: str, ktype: str = "daily", adjust: str = "none") ->
             pass
     cache_set_json(cache_key, payload)
     return payload
+
+
+def get_served_quote(symbol: str) -> dict[str, Any]:
+    clean = normalize_symbol(symbol)
+    cache_key = f"quote:{clean}"
+    cached = served_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    payload = get_quote(clean)
+    served_cache_set(cache_key, payload, ttl=QUOTE_CACHE_TTL_SECONDS)
+    return payload
+
+
+def get_served_quotes(symbols_text: str) -> dict[str, Any]:
+    symbols = normalize_symbol_list(symbols_text)
+    if len(symbols) > QUOTE_BATCH_MAX_SYMBOLS:
+        raise ValueError(f"too many symbols, max is {QUOTE_BATCH_MAX_SYMBOLS}")
+
+    quotes: list[dict[str, Any]] = []
+    failed: list[dict[str, str]] = []
+    hits = 0
+    misses: list[str] = []
+    for symbol in symbols:
+        cached = served_cache_get(f"quote:{symbol}")
+        if cached is None:
+            misses.append(symbol)
+            continue
+        quotes.append(cached)
+        hits += 1
+
+    if misses:
+        max_workers = max(1, min(QUOTE_PROVIDER_MAX_WORKERS, len(misses)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(get_quote, symbol): symbol for symbol in misses}
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    quote = future.result()
+                    served_cache_set(f"quote:{symbol}", quote, ttl=QUOTE_CACHE_TTL_SECONDS)
+                    quotes.append(quote)
+                except Exception as error:  # pylint: disable=broad-exception-caught
+                    failed.append({"symbol": symbol, "error": str(error)})
+
+    quotes.sort(key=lambda row: symbols.index(row["symbol"]))
+    status = quote_batch_status(quotes, failed)
+    return {
+        "source": "quote_batch",
+        "status": status,
+        "updated_at": utc_now(),
+        "cache": {"hits": hits, "misses": len(misses)},
+        "data": quotes,
+        "failed": failed,
+    }
+
+
+def get_served_indexes() -> dict[str, Any]:
+    cache_key = "market:indexes"
+    cached = served_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    payload = get_indexes()
+    served_cache_set(cache_key, payload, ttl=INDEX_CACHE_TTL_SECONDS)
+    return payload
+
+
+def get_market_snapshot(symbols_text: str) -> dict[str, Any]:
+    quotes = get_served_quotes(symbols_text) if symbols_text.strip() else empty_quotes_payload()
+    try:
+        indexes = get_served_indexes()
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        indexes = unavailable_indexes_payload(error)
+    return {
+        "source": "market_snapshot",
+        "status": snapshot_status(quotes, indexes),
+        "updated_at": utc_now(),
+        "quotes": quotes,
+        "indexes": indexes,
+    }
+
+
+def normalize_symbol_list(symbols_text: str) -> list[str]:
+    symbols = []
+    seen = set()
+    for item in symbols_text.split(","):
+        text = item.strip()
+        if not text:
+            continue
+        symbol = normalize_symbol(text)
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+    return symbols
+
+
+def empty_quotes_payload() -> dict[str, Any]:
+    return {
+        "source": "quote_batch",
+        "status": "empty",
+        "updated_at": utc_now(),
+        "cache": {"hits": 0, "misses": 0},
+        "data": [],
+        "failed": [],
+    }
+
+
+def quote_batch_status(quotes: list[dict[str, Any]], failed: list[dict[str, str]]) -> str:
+    if quotes and not failed:
+        return "ready"
+    if quotes:
+        return "partial"
+    if failed:
+        return "error"
+    return "empty"
+
+
+def snapshot_status(quotes: dict[str, Any], indexes: dict[str, Any]) -> str:
+    if quotes.get("status") == "error" or indexes.get("status") == "unavailable":
+        return "partial"
+    return "ready"
+
+
+def unavailable_indexes_payload(error: Exception) -> dict[str, Any]:
+    return {
+        "source": "akshare.stock_zh_index_spot_em",
+        "status": "unavailable",
+        "message": str(error),
+        "updated_at": utc_now(),
+        "data": [],
+    }
+
+
+def served_cache_get(key: str) -> Any | None:
+    cached = cache_get_json(key)
+    if cached is not None:
+        cached["cache"] = "redis"
+        return cached
+
+    item = RUNTIME_CACHE.get(key)
+    if item is None:
+        return None
+    expires_at, value = item
+    if expires_at <= time.monotonic():
+        RUNTIME_CACHE.pop(key, None)
+        return None
+    payload = copy.deepcopy(value)
+    payload["cache"] = "memory"
+    return payload
+
+
+def served_cache_set(key: str, value: Any, ttl: int) -> None:
+    RUNTIME_CACHE[key] = (time.monotonic() + ttl, copy.deepcopy(value))
+    cache_set_json(key, value, ttl=ttl)
 
 
 def persist_stock_status(payload: dict[str, Any]) -> None:

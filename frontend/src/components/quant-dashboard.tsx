@@ -15,8 +15,7 @@ import {
 import {
   useKlineData,
   useMarketDetails,
-  useMarketIndexes,
-  useQuotePolling,
+  useMarketSnapshotPolling,
   useStockLookup,
   useWatchlistPersistence,
 } from "@/components/market-dashboard/use-market-dashboard-data";
@@ -43,8 +42,7 @@ export function QuantDashboard() {
   } = useMarketStore();
 
   useWatchlistPersistence();
-  useMarketIndexes();
-  useQuotePolling();
+  useMarketSnapshotPolling();
   useKlineData();
 
   const { results: searchResults, searchStatus } = useStockLookup(query);
