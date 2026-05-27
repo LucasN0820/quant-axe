@@ -7,8 +7,9 @@ import math
 from datetime import date, timedelta
 from typing import Any
 
-from backend.app.services.config import TUSHARE_TOKEN
+from backend.app.services.config import CACHE_TTL_SECONDS, TUSHARE_TOKEN
 from backend.app.services.reference_utils import infer_exchange, normalize_provider_date, utc_now
+from backend.app.services.storage import cache_get_json, cache_set_json
 
 
 def tushare_status() -> dict[str, Any]:
@@ -56,6 +57,11 @@ def fetch_tushare_stock_profiles() -> list[dict[str, Any]]:
 
 def fetch_tushare_index_members(index_code: str, target_date: str) -> list[dict[str, Any]]:
     """Fetch the latest index weights at or before target_date without looking ahead."""
+    cache_key = f"tushare:index_members:{index_code}:{target_date}"
+    cached = cache_get_json(cache_key)
+    if cached is not None:
+        return cached
+
     pro = tushare_client()
     end = date.fromisoformat(target_date)
     start = end - timedelta(days=400)
@@ -87,6 +93,7 @@ def fetch_tushare_index_members(index_code: str, target_date: str) -> list[dict[
                 "weight": numeric(row.get("weight")),
             }
         )
+    cache_set_json(cache_key, rows, CACHE_TTL_SECONDS)
     return rows
 
 

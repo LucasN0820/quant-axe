@@ -1,0 +1,5 @@
+interface:
+  display_name: "Claude Frontend Design"
+  short_description: "Claude-inspired frontend UI direction"
+  brand_color: "#c96442"
+  default_prompt: "Use $frontend-design to build this interface in a Claude-inspired warm editorial product style."

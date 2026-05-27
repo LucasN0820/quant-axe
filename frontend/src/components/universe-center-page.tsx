@@ -476,6 +476,7 @@ function ConfigPanel({
             icon={<Search size={16} />}
             onClick={onPreview}
             strong
+            disabled={previewState === "loading"}
           />
           <CommandButton
             label={selectedIsBuiltin ? "另存" : saveState === "loading" ? "保存中" : "保存"}
