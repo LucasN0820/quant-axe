@@ -6,6 +6,16 @@ from unittest.mock import patch
 from backend.app.services import search_data
 
 
+class FakeFrame:
+    """Minimal pandas-like frame used by provider adapter tests."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    def to_dict(self, _orient: str) -> list[dict]:
+        return self.rows
+
+
 SAMPLE_INDEX = (
     {
         "kind": "stock",
@@ -82,6 +92,56 @@ class SearchDataTest(unittest.TestCase):
         with patch.object(search_data, "search_index", return_value=SAMPLE_INDEX):
             payload = search_data.search_universe("830799")
         self.assertEqual("BSE", payload["data"][0]["exchange"])
+
+    def test_search_index_uses_persistent_cache(self) -> None:
+        with patch.object(search_data, "cache_get_json", return_value=list(SAMPLE_INDEX)), \
+            patch.object(search_data, "load_a_share_universe") as load_stocks:
+            rows = search_data.search_index()
+        self.assertEqual(SAMPLE_INDEX, rows)
+        load_stocks.assert_not_called()
+
+    def test_search_index_uses_stale_cache_when_provider_returns_partial_data(self) -> None:
+        partial = [SAMPLE_INDEX[-1]]
+
+        def cache_get(key: str):
+            if key == search_data.SEARCH_INDEX_STALE_CACHE_KEY:
+                return list(SAMPLE_INDEX)
+            return None
+
+        with patch.object(search_data, "cache_get_json", side_effect=cache_get), \
+            patch.object(search_data, "load_a_share_universe", return_value=partial), \
+            patch.object(search_data, "load_index_universe", return_value=[]), \
+            patch.object(search_data, "load_etf_universe", return_value=[]):
+            rows = search_data.search_index()
+        self.assertEqual(SAMPLE_INDEX, rows)
+
+    def test_load_index_universe_falls_back_to_sina(self) -> None:
+        class FakeAkshare:
+            """AkShare double with only the Sina index endpoint available."""
+
+            @staticmethod
+            def stock_zh_index_spot_em(**_kwargs):
+                raise ConnectionError("eastmoney unavailable")
+
+            @staticmethod
+            def stock_zh_index_spot_sina():
+                return FakeFrame([{"代码": "sh000001", "名称": "上证指数"}])
+
+        with patch.object(search_data, "load_akshare", return_value=FakeAkshare()):
+            rows = search_data.load_index_universe()
+        self.assertEqual("000001", rows[0]["symbol"])
+
+    def test_load_etf_universe_uses_fast_ths_source(self) -> None:
+        class FakeAkshare:
+            """AkShare double exposing the fast ETF directory."""
+
+            @staticmethod
+            def fund_etf_spot_ths():
+                return FakeFrame([{"基金代码": "510050", "基金名称": "上证50ETF"}])
+
+        with patch.object(search_data, "load_akshare", return_value=FakeAkshare()):
+            rows = search_data.load_etf_universe()
+        self.assertEqual("510050", rows[0]["symbol"])
 
 
 if __name__ == "__main__":

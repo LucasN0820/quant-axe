@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import csv
 import math
+import re
 import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Literal
+
+import requests
 
 
 INDEXES = [
@@ -36,8 +40,36 @@ def market_symbol(symbol: str) -> str:
 
 def get_quote(symbol: str) -> dict[str, Any]:
     clean = normalize_symbol(symbol)
-    quote = bid_ask_map(clean)
-    info = individual_info_map(clean)
+    try:
+        quote = bid_ask_map(clean)
+        info = individual_info_map(clean)
+        return quote_payload(
+            clean,
+            quote,
+            name=stringify(info.get("股票简称")) or clean,
+            source="akshare.stock_bid_ask_em",
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        quote = sina_quote_map(clean)
+        return quote_payload(
+            clean,
+            quote,
+            name=stringify(quote.get("股票简称")) or clean,
+            source="sina.hq",
+            trade_date=stringify(quote.get("交易日期")) or None,
+            trade_time=stringify(quote.get("交易时间")) or None,
+        )
+
+
+def quote_payload(
+    symbol: str,
+    quote: dict[str, Any],
+    *,
+    name: str,
+    source: str,
+    trade_date: str | None = None,
+    trade_time: str | None = None,
+) -> dict[str, Any]:
     previous_close = to_float(quote.get("昨收"))
     current = to_float(quote.get("最新"))
     change_amount = to_float(quote.get("涨跌"))
@@ -48,8 +80,8 @@ def get_quote(symbol: str) -> dict[str, Any]:
         change_rate = round(change_amount / previous_close * 100, 2)
 
     return {
-        "symbol": clean,
-        "name": stringify(info.get("股票简称")) or clean,
+        "symbol": symbol,
+        "name": name,
         "current_price": current,
         "change_rate": change_rate,
         "change_amount": change_amount,
@@ -62,9 +94,9 @@ def get_quote(symbol: str) -> dict[str, Any]:
         "pe_ttm": None,
         "pb": None,
         "turnover_rate": to_float(quote.get("换手")),
-        "trade_date": date.today().isoformat(),
-        "trade_time": datetime.now().strftime("%H:%M:%S"),
-        "source": "akshare.stock_bid_ask_em",
+        "trade_date": trade_date or date.today().isoformat(),
+        "trade_time": trade_time or datetime.now().strftime("%H:%M:%S"),
+        "source": source,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -232,8 +264,16 @@ def _get_minute_kline(symbol: str, ktype: str, ak: Any) -> dict[str, Any]:
 
 def get_indexes() -> dict[str, Any]:
     ak = load_akshare()
-    frame = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
-    rows_by_symbol = {stringify(row.get("代码")): row for row in frame.to_dict("records")}
+    try:
+        frame = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
+        source = "akshare.stock_zh_index_spot_em"
+    except Exception:  # pylint: disable=broad-exception-caught
+        frame = ak.stock_zh_index_spot_sina()
+        source = "akshare.stock_zh_index_spot_sina"
+    rows_by_symbol = {
+        provider_symbol(row.get("代码")): row
+        for row in frame.to_dict("records")
+    }
     data = [
         {
             "symbol": symbol,
@@ -248,7 +288,7 @@ def get_indexes() -> dict[str, Any]:
         if symbol in rows_by_symbol
     ]
     return {
-        "source": "akshare.stock_zh_index_spot_em",
+        "source": source,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": data,
     }
@@ -279,7 +319,12 @@ def search_stocks(query: str) -> dict[str, Any]:
 def get_order_book(symbol: str) -> dict[str, Any]:
     clean = normalize_symbol(symbol)
     labels = ["一", "二", "三", "四", "五"]
-    quote = bid_ask_map(clean)
+    try:
+        quote = bid_ask_map(clean)
+        source = "akshare.stock_bid_ask_em"
+    except Exception:  # pylint: disable=broad-exception-caught
+        quote = sina_quote_map(clean)
+        source = "sina.hq"
 
     bids = [
         {
@@ -300,7 +345,7 @@ def get_order_book(symbol: str) -> dict[str, Any]:
 
     return {
         "symbol": clean,
-        "source": "akshare.stock_bid_ask_em",
+        "source": source,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "data": {"asks": list(reversed(asks)), "bids": bids},
     }
@@ -343,6 +388,49 @@ def individual_info_map(symbol: str) -> dict[str, Any]:
     ak = load_akshare()
     frame = ak.stock_individual_info_em(symbol=normalize_symbol(symbol))
     return {stringify(row.get("item")): row.get("value") for row in frame.to_dict("records")}
+
+
+def sina_quote_map(symbol: str) -> dict[str, Any]:
+    market_code = market_symbol(symbol)
+    response = requests.get(
+        f"https://hq.sinajs.cn/list={market_code}",
+        headers={"Referer": "https://finance.sina.com.cn"},
+        timeout=5,
+    )
+    response.raise_for_status()
+    response.encoding = "gb18030"
+    match = re.search(rf'var hq_str_{market_code}="(.*)";', response.text)
+    if match is None:
+        raise ValueError(f"empty Sina quote response for {symbol}")
+    values = next(csv.reader([match.group(1)]))
+    if len(values) < 32 or not values[0]:
+        raise ValueError(f"incomplete Sina quote response for {symbol}")
+
+    quote = {
+        "股票简称": values[0],
+        "今开": values[1],
+        "昨收": values[2],
+        "最新": values[3],
+        "最高": values[4],
+        "最低": values[5],
+        "金额": values[9],
+        "总手": values[8],
+        "交易日期": values[30],
+        "交易时间": values[31],
+    }
+    for index in range(5):
+        bid_offset = 10 + index * 2
+        ask_offset = 20 + index * 2
+        quote[f"buy_{index + 1}_vol"] = values[bid_offset]
+        quote[f"buy_{index + 1}"] = values[bid_offset + 1]
+        quote[f"sell_{index + 1}_vol"] = values[ask_offset]
+        quote[f"sell_{index + 1}"] = values[ask_offset + 1]
+    return quote
+
+
+def provider_symbol(value: Any) -> str:
+    digits = "".join(ch for ch in stringify(value) if ch.isdigit())
+    return digits[-6:]
 
 
 @lru_cache(maxsize=1)

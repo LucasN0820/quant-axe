@@ -80,7 +80,12 @@ export function QuantDashboard() {
                 mode={mode}
                 onModeChange={setMode}
               />
-              <KlinePanel data={chartData} status={chartStatus} />
+              <KlinePanel
+                data={chartData}
+                status={chartStatus}
+                mode={mode}
+                previousClose={selectedQuote?.previous_close}
+              />
             </section>
 
             <section className="grid gap-4 lg:grid-cols-[1fr_300px]">

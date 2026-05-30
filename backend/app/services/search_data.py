@@ -4,13 +4,21 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from threading import Lock
 from typing import Any
 
-from backend.app.services.market_data import load_akshare, stringify
+from backend.app.services.market_data import load_akshare, provider_symbol, stringify
 from backend.app.services.reference_utils import infer_exchange, utc_now
+from backend.app.services.storage import cache_get_json, cache_set_json
 
 
 SEARCH_RESULT_LIMIT = 30
+SEARCH_INDEX_CACHE_KEY = "search:universe:v1"
+SEARCH_INDEX_STALE_CACHE_KEY = "search:universe:v1:stale"
+SEARCH_INDEX_CACHE_TTL_SECONDS = 86_400
+SEARCH_INDEX_STALE_TTL_SECONDS = 604_800
+MINIMUM_COMPLETE_STOCK_COUNT = 1_000
+SEARCH_INDEX_BUILD_LOCK = Lock()
 
 
 def search_universe(query: str, limit: int = 20) -> dict[str, Any]:
@@ -74,10 +82,36 @@ def score_entry(record: dict[str, Any], needle: str, digits: str) -> int:  # pyl
 
 @lru_cache(maxsize=1)
 def search_index() -> tuple[dict[str, Any], ...]:
-    rows: list[dict[str, Any]] = []
-    rows.extend(load_a_share_universe())
-    rows.extend(load_index_universe())
-    rows.extend(load_etf_universe())
+    with SEARCH_INDEX_BUILD_LOCK:
+        cached = cache_get_json(SEARCH_INDEX_CACHE_KEY)
+        if cached:
+            return tuple(cached)
+
+        rows: list[dict[str, Any]] = []
+        rows.extend(load_a_share_universe())
+        rows.extend(load_index_universe())
+        rows.extend(load_etf_universe())
+        deduped = dedupe_rows(rows)
+        stock_count = sum(row["kind"] == "stock" for row in deduped)
+        if stock_count >= MINIMUM_COMPLETE_STOCK_COUNT:
+            cache_set_json(
+                SEARCH_INDEX_CACHE_KEY,
+                deduped,
+                ttl=SEARCH_INDEX_CACHE_TTL_SECONDS,
+            )
+            cache_set_json(
+                SEARCH_INDEX_STALE_CACHE_KEY,
+                deduped,
+                ttl=SEARCH_INDEX_STALE_TTL_SECONDS,
+            )
+        else:
+            stale = cache_get_json(SEARCH_INDEX_STALE_CACHE_KEY)
+            if stale:
+                return tuple(stale)
+        return tuple(deduped)
+
+
+def dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[tuple[str, str]] = set()
     deduped: list[dict[str, Any]] = []
     for row in rows:
@@ -86,7 +120,7 @@ def search_index() -> tuple[dict[str, Any], ...]:
             continue
         seen.add(key)
         deduped.append(row)
-    return tuple(deduped)
+    return deduped
 
 
 def reset_search_index() -> None:
@@ -158,11 +192,14 @@ def load_index_universe() -> list[dict[str, Any]]:
     try:
         frame = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
     except Exception:  # pylint: disable=broad-exception-caught
-        return rows
+        try:
+            frame = ak.stock_zh_index_spot_sina()
+        except Exception:  # pylint: disable=broad-exception-caught
+            return rows
     if not hasattr(frame, "to_dict"):
         return rows
     for record in frame.to_dict("records"):
-        symbol = stringify(record.get("代码"))
+        symbol = provider_symbol(record.get("代码"))
         name = stringify(record.get("名称"))
         if len(symbol) != 6 or not name:
             continue
@@ -181,14 +218,17 @@ def load_etf_universe() -> list[dict[str, Any]]:
     ak = load_akshare()
     rows: list[dict[str, Any]] = []
     try:
-        frame = ak.fund_etf_spot_em()
+        frame = ak.fund_etf_spot_ths()
     except Exception:  # pylint: disable=broad-exception-caught
-        return rows
+        try:
+            frame = ak.fund_etf_category_sina(symbol="ETF基金")
+        except Exception:  # pylint: disable=broad-exception-caught
+            return rows
     if not hasattr(frame, "to_dict"):
         return rows
     for record in frame.to_dict("records"):
-        symbol = stringify(record.get("代码"))
-        name = stringify(record.get("名称"))
+        symbol = provider_symbol(record.get("基金代码") or record.get("代码"))
+        name = stringify(record.get("基金名称") or record.get("名称"))
         if len(symbol) != 6 or not name:
             continue
         rows.append(

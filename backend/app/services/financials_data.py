@@ -1,34 +1,18 @@
-"""Financial metrics service combining Tushare daily_basic and fina_indicator."""
+"""Financial metrics service combining daily valuation and financial indicators via AkShare."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from backend.app.services.config import TUSHARE_TOKEN
 from backend.app.services.market_data import normalize_symbol
 from backend.app.services.reference_utils import utc_now
 from backend.app.services.storage import save_raw_payload, upsert_financial_metrics
 
 
 def get_financial_metrics(symbol: str) -> dict[str, Any]:
-    """Return combined valuation, quality, and growth metrics for one symbol.
-
-    Falls back to a `not_configured` status if Tushare is unavailable. Each
-    field carries its own provider hint so the frontend can display per-field
-    data lineage when Tushare is partially available.
-    """
+    """Return combined valuation, quality, and growth metrics for one symbol."""
 
     clean = normalize_symbol(symbol)
-
-    if not TUSHARE_TOKEN:
-        return {
-            "symbol": clean,
-            "source": "tushare",
-            "status": "not_configured",
-            "message": "TUSHARE_TOKEN is not configured",
-            "updated_at": utc_now(),
-            "data": empty_payload(),
-        }
 
     daily_payload = safe_fetch(clean, "daily_basic")
     indicator_payload = safe_fetch(clean, "fina_indicator")
@@ -47,7 +31,7 @@ def get_financial_metrics(symbol: str) -> dict[str, Any]:
 
     return {
         "symbol": clean,
-        "source": "tushare.daily_basic+fina_indicator",
+        "source": "akshare.stock_zh_a_spot_em+stock_financial_analysis_indicator_em",
         "status": overall,
         "providers": statuses,
         "updated_at": utc_now(),
@@ -69,7 +53,7 @@ def safe_fetch(symbol: str, dataset: str) -> dict[str, Any]:
     except Exception as error:  # pylint: disable=broad-exception-caught
         return {
             "symbol": symbol,
-            "source": f"tushare.{dataset}",
+            "source": "akshare" if dataset == "daily_basic" else "akshare",
             "status": "unavailable",
             "message": str(error),
             "data": None,
@@ -121,7 +105,7 @@ def persist_metrics(
                 "pb": (daily_data or {}).get("pb"),
                 "roe": indicator_data.get("roe"),
                 "gross_margin": indicator_data.get("gross_margin"),
-                "source": "tushare.fina_indicator",
+                "source": "akshare.stock_financial_analysis_indicator_em",
                 "updated_at": now,
             }
         )
@@ -134,7 +118,7 @@ def persist_metrics(
                 "pb": daily_data.get("pb"),
                 "roe": None,
                 "gross_margin": None,
-                "source": "tushare.daily_basic",
+                "source": "akshare.stock_zh_a_spot_em",
                 "updated_at": now,
             }
         )
@@ -144,7 +128,7 @@ def persist_metrics(
 
     try:
         upsert_financial_metrics(rows)
-        save_raw_payload("tushare", "financial_metrics", rows, symbol)
+        save_raw_payload("akshare", "financial_metrics", rows, symbol)
     except Exception:  # pylint: disable=broad-exception-caught
         # Persistence is best-effort; the API still returns the in-memory
         # payload so the frontend can render valuation cards immediately.

@@ -73,9 +73,9 @@ def data_health() -> dict[str, Any]:
         "service": "quantdash-data-center",
         "updated_at": utc_now(),
         "providers": [
-            {"id": "akshare", "status": "configured", "role": "market/reference/news"},
+            {"id": "akshare", "status": "configured", "role": "market/reference/news/financials/announcements"},
             {"id": "newsnow", "status": "configured", "role": "hot_news"},
-            tushare_status() | {"role": "announcements/financials/supplement"},
+            tushare_status() | {"role": "reference/supplement"},
         ],
         "storage": [
             postgres_status(),
@@ -441,14 +441,14 @@ def get_announcements(symbol: str, limit: int = 30) -> dict[str, Any]:
     except Exception as error:  # pylint: disable=broad-exception-caught
         return {
             "symbol": clean,
-            "source": "tushare.anns",
+            "source": "akshare.stock_notice_report",
             "status": "unavailable",
             "message": str(error),
             "data": [],
         }
     try:
         insert_news_items(payload["data"], "announcement")
-        save_raw_payload("tushare", "anns", payload["data"], clean)
+        save_raw_payload("akshare", "anns", payload["data"], clean)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
     return payload

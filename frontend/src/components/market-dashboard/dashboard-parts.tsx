@@ -343,7 +343,7 @@ export function StockHeader({
             {formatChange(change)}
           </span>
           <span className="text-sm text-slate-500">
-            H {formatNumber(quote?.high)} / L {formatNumber(quote?.low)}
+            最高 {formatNumber(quote?.high)} / 最低 {formatNumber(quote?.low)}
           </span>
           {quote?.trade_time && <span className="text-sm text-slate-500">{quote.trade_date} {quote.trade_time}</span>}
         </div>
@@ -374,11 +374,21 @@ export function StockHeader({
   );
 }
 
-export function KlinePanel({ data, status }: { data: KlinePoint[]; status: string }) {
+export function KlinePanel({
+  data,
+  status,
+  mode,
+  previousClose,
+}: {
+  data: KlinePoint[];
+  status: string;
+  mode: ChartMode;
+  previousClose?: number | null;
+}) {
   return (
     <div className="h-[430px] px-2 py-3">
       {data.length > 0 ? (
-        <KlineChart data={data} />
+        <KlineChart data={data} mode={mode} previousClose={previousClose} />
       ) : (
         <EmptyState
           icon={<Clock3 size={18} />}
@@ -606,8 +616,7 @@ export function FinancialSummaryPanel({
   const grossMargin = data.gross_margin ?? null;
   const watermark = typeof pe === "number" ? Math.min(Math.round(pe), 95) : 0;
   const periodLabel = data.report_period ?? data.trade_date ?? null;
-  const isUnconfigured = financials.source === "tushare" && financials.status === "idle";
-  const notConfigured = financials.message === "TUSHARE_TOKEN is not configured";
+  const isIdle = financials.status === "idle";
 
   return (
     <section className="rounded-lg border border-white/10 bg-white/3">
@@ -643,15 +652,11 @@ export function FinancialSummaryPanel({
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <div className="h-full rounded-full bg-emerald-300" style={{ width: `${watermark}%` }} />
         </div>
-        {notConfigured ? (
-          <p className="mt-3 text-xs text-amber-300">
-            未配置 TUSHARE_TOKEN，财务指标暂不可用。
-          </p>
-        ) : !pe && !pb && !roe ? (
+        {!pe && !pb && !roe ? (
           <p className="mt-3 text-xs text-slate-500">财务数据源暂未返回结果，不生成估值判断。</p>
         ) : null}
-        {isUnconfigured && (
-          <p className="mt-1 text-xs text-slate-500">数据源 Tushare daily_basic + fina_indicator</p>
+        {isIdle && (
+          <p className="mt-1 text-xs text-slate-500">数据源 AkShare 财务估值指标</p>
         )}
       </div>
     </section>

@@ -125,10 +125,9 @@ GET /api/intelligence/hot-keywords?limit=
 | 涨跌停价格                      | 自算（前收盘 × 比例）                    | Tushare `stk_limit`（后续）            |
 | 停牌历史                        | 日 K 缺失推断                            | Tushare `suspend_d`（后续）            |
 | ST 历史                         | 当前简称推断                             | Tushare `namechange`（后续）           |
-| 财务指标 PE/PB/ROE/毛利率       | Tushare `daily_basic` + `fina_indicator` | —                                      |
-| 指数成分股 + 权重               | Tushare `index_weight`（后续）           | —                                      |
-| 行业分类                        | Tushare `sw_index_member`（后续）        | —                                      |
-| 公告                            | Tushare `anns`                           | —                                      |
+| 财务指标 PE/PB/ROE/毛利率       | AkShare `stock_zh_a_spot_em` + `stock_financial_analysis_indicator_em` | —                                      |
+| 指数成分股 + 权重               | AkShare `index_stock_cons_weight_csindex`                              | Tushare `index_weight`（备选）         |
+| 公告                            | AkShare `stock_notice_report`                                          | Tushare `anns`（备选）                 |
 | 个股新闻                        | AkShare `stock_news_em`                  | —                                      |
 | 全市场热点新闻                  | NewsNow 聚合                             | —                                      |
 | 舆情热词                        | NewsNow 标题派生                         | AkShare `stock_hot_keyword_em`（后续） |
@@ -136,12 +135,11 @@ GET /api/intelligence/hot-keywords?limit=
 
 ### 7.2 已接入 Tushare 接口
 
-| 接口             | 用途                  | 积分要求 |
-| ---------------- | --------------------- | -------- |
-| `stock_basic`    | 股票基础信息          | 120      |
-| `anns`           | 公告                  | 120      |
-| `daily_basic`    | PE/PB/换手率/流通市值 | 2000     |
-| `fina_indicator` | ROE/毛利率/净利增速   | 2000     |
+| 接口          | 用途         | 积分要求 | 状态          |
+| ------------- | ------------ | -------- | ------------- |
+| `stock_basic` | 股票基础信息 | 120      | 保留在 TuShare |
+
+其余接口（`anns`、`daily_basic`、`fina_indicator`、`index_weight`）已于 2026-05-30 迁移至 AkShare，详见 `docs/0002-data-center/0006-tushare-akshare-field-gap.md`。
 
 ### 7.3 后续待接入（回测前置）
 

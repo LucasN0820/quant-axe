@@ -1,9 +1,10 @@
-FROM node:22-slim
+FROM docker.m.daocloud.io/library/node:22-slim
 
 WORKDIR /app
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmmirror.com \
+  && npm ci
 
 COPY frontend .
 
