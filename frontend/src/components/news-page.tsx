@@ -4,16 +4,24 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ArrowLeft,
+  BrainCircuit,
   ExternalLink,
   Flame,
+  Gauge,
   Newspaper,
   Radio,
   RefreshCw,
+  ShieldAlert,
+  Sparkles,
+  TrendingUp,
 } from "lucide-react";
-import { useHotNews } from "@/components/market-dashboard/use-market-dashboard-data";
+import {
+  useHotNews,
+  useNewsAnalysis,
+} from "@/components/market-dashboard/use-market-dashboard-data";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/market-format";
-import type { NewsItem } from "@/lib/market-types";
+import type { NewsAnalysis, NewsItem } from "@/lib/market-types";
 import { formatNewsTime, newsTimestamp, sortNewsByTimeDesc } from "@/lib/news-utils";
 
 type SourceOption = {
@@ -22,19 +30,28 @@ type SourceOption = {
   count: number;
 };
 
+const SOURCE_ORDER = ["cls-hot", "wallstreetcn-hot", "ifeng"];
+
 export function NewsPage() {
-  const hotNews = useHotNews(120);
+  const hotNews = useHotNews(200);
+  const analysis = useNewsAnalysis();
   const [activeSource, setActiveSource] = useState("all");
 
   const sortedNews = useMemo(() => sortNewsByTimeDesc(hotNews.data), [hotNews.data]);
   const sources = useMemo(() => sourceOptions(sortedNews), [sortedNews]);
-  const visibleNews = useMemo(
+  const sourceGroups = useMemo(
     () =>
-      activeSource === "all"
-        ? sortedNews
-        : sortedNews.filter((item) => sourceId(item) === activeSource),
-    [activeSource, sortedNews],
+      sources
+        .filter((source) => activeSource === "all" || source.id === activeSource)
+        .map((source) => ({
+          ...source,
+          items: sortedNews
+            .filter((item) => sourceId(item) === source.id)
+            .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity)),
+        })),
+    [activeSource, sortedNews, sources],
   );
+  const visibleCount = sourceGroups.reduce((count, source) => count + source.items.length, 0);
   const lastUpdated = useMemo(() => latestTimeLabel(sortedNews), [sortedNews]);
 
   return (
@@ -54,12 +71,12 @@ export function NewsPage() {
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold">QuantDash News</h1>
-              <p className="truncate text-xs text-slate-500">全市场热点新闻流</p>
+              <p className="truncate text-xs text-slate-500">财经热榜与 A 股舆情分析</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="hidden rounded-md border border-white/10 px-3 py-2 text-xs text-slate-500 sm:inline">
-              {lastUpdated ? `更新 ${lastUpdated}` : "等待数据"}
+              {lastUpdated ? `快照 ${lastUpdated}` : "等待数据"}
             </span>
             <ThemeToggle />
             <button
@@ -79,11 +96,11 @@ export function NewsPage() {
           <section className="rounded-lg border border-white/10 bg-[#0d131a]">
             <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
               <Flame size={17} className="text-emerald-300" />
-              <h2 className="font-medium">来源</h2>
+              <h2 className="font-medium">财经来源</h2>
             </div>
             <div className="space-y-1 p-2">
               <SourceButton
-                label="全部热点"
+                label="全部热榜"
                 count={sortedNews.length}
                 active={activeSource === "all"}
                 onClick={() => setActiveSource("all")}
@@ -101,43 +118,126 @@ export function NewsPage() {
           </section>
         </aside>
 
-        <section className="min-w-0 rounded-lg border border-white/10 bg-[#0d131a]">
-          <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-sm text-emerald-300">
-                <Radio size={16} />
-                <span>Hottest</span>
-              </div>
-              <h2 className="mt-1 text-2xl font-semibold">热点新闻</h2>
-            </div>
-            <div className="text-sm text-slate-500">
-              {hotNews.status === "loading" && sortedNews.length === 0
-                ? "正在同步 NewsNow"
-                : `${visibleNews.length} 条新闻`}
-            </div>
-          </div>
-
-          {visibleNews.length > 0 ? (
-            <ol className="divide-y divide-white/10">
-              {visibleNews.map((item, index) => (
-                <NewsRow key={`${sourceId(item)}-${item.rank ?? index}-${item.title}`} item={item} index={index} />
-              ))}
-            </ol>
-          ) : (
-            <div className="p-5">
-              <div className="rounded-md border border-white/10 bg-black/20 p-4 text-sm">
-                <div className="font-medium text-slate-300">
-                  {hotNews.status === "error" ? "热点新闻暂不可用" : "正在加载热点新闻"}
-                </div>
-                <p className="mt-2 text-slate-500">
-                  {hotNews.message ?? "数据来自 NewsNow 聚合接口，加载完成后会按时间从近到远展示。"}
-                </p>
-              </div>
+        <div className="min-w-0 space-y-5">
+          {hotNews.stale && (
+            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+              R2 当日快照暂不可用，当前展示最近可读快照：{hotNews.snapshot_date ?? "未知日期"}{" "}
+              {hotNews.snapshot_crawl_time ?? ""}
             </div>
           )}
-        </section>
+          <AIAnalysisPanel analysis={analysis.data} status={analysis.status} stale={analysis.stale} />
+          <section className="rounded-lg border border-white/10 bg-[#0d131a]">
+            <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-sm text-emerald-300">
+                  <Radio size={16} />
+                  <span>R2 Market Pulse</span>
+                </div>
+                <h2 className="mt-1 text-2xl font-semibold">财经热点热榜</h2>
+              </div>
+              <div className="text-sm text-slate-500">
+                {hotNews.status === "loading" && sortedNews.length === 0 ? "正在读取 R2 快照" : `${visibleCount} 条新闻`}
+              </div>
+            </div>
+
+            {sourceGroups.length > 0 ? (
+              <div className="divide-y divide-white/10">
+                {sourceGroups.map((source) => (
+                  <section key={source.id}>
+                    <div className="flex items-center justify-between bg-black/10 px-4 py-3">
+                      <h3 className="font-medium text-slate-200">{source.name}</h3>
+                      <span className="font-mono text-xs text-slate-500">{source.items.length} 条</span>
+                    </div>
+                    <ol className="divide-y divide-white/10">
+                      {source.items.map((item, index) => (
+                        <NewsRow key={`${source.id}-${item.rank ?? index}-${item.title}`} item={item} index={index} />
+                      ))}
+                    </ol>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="p-5">
+                <div className="rounded-md border border-white/10 bg-black/20 p-4 text-sm">
+                  <div className="font-medium text-slate-300">
+                    {hotNews.status === "error" ? "热点新闻暂不可用" : "正在加载热点新闻"}
+                  </div>
+                  <p className="mt-2 text-slate-500">
+                    {hotNews.message ?? "正在读取 news-collector 上传到 R2 的财经热榜快照。"}
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </main>
+  );
+}
+
+function AIAnalysisPanel({
+  analysis,
+  status,
+  stale,
+}: {
+  analysis: NewsAnalysis | null;
+  status: "loading" | "ready" | "waiting" | "error";
+  stale?: boolean;
+}) {
+  if (!analysis) {
+    return (
+      <section className="rounded-lg border border-white/10 bg-[#0d131a] p-4">
+        <div className="flex items-start gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-emerald-300/10 text-emerald-300">
+            <BrainCircuit size={20} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">A 股热点研判</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {status === "error"
+                ? "AI 分析暂不可用，财经热榜仍可正常浏览。"
+                : "等待下一个 A 股时间线节点生成分析，财经热榜会先行展示。"}
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const cards = [
+    { title: "核心趋势", content: analysis.core_trends, icon: TrendingUp },
+    { title: "舆论争议", content: analysis.sentiment_controversy, icon: ShieldAlert },
+    { title: "异动信号", content: analysis.signals, icon: Gauge },
+    { title: "量化观察", content: analysis.outlook_strategy, icon: Sparkles },
+  ];
+
+  return (
+    <section className="rounded-lg border border-emerald-400/25 bg-[#0d131a]">
+      <div className="flex flex-col gap-2 border-b border-white/10 px-4 py-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-emerald-300">
+            <BrainCircuit size={16} />
+            <span>A-share Intelligence</span>
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold">A 股热点研判</h2>
+        </div>
+        <div className="font-mono text-xs text-slate-500">
+          {analysis.node_key} · {analysis.analysis_mode} · {formatAnalysisTime(analysis.generated_at)}
+          {stale ? " · 历史快照" : ""}
+        </div>
+      </div>
+      <div className="grid gap-px bg-white/10 md:grid-cols-2">
+        {cards.map(({ title, content, icon: Icon }) => (
+          <article key={title} className="bg-[#0d131a] p-4">
+            <div className="flex items-center gap-2 text-sm text-emerald-300">
+              <Icon size={15} />
+              <h3>{title}</h3>
+            </div>
+            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-400">{content || "暂无显著异常"}</p>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -182,6 +282,9 @@ function NewsRow({ item, index }: { item: NewsItem; index: number }) {
               #{item.rank}
             </span>
           )}
+          {typeof item.crawl_count === "number" && item.crawl_count > 1 && (
+            <span className="font-mono text-xs text-slate-600">持续 {item.crawl_count} 次</span>
+          )}
         </div>
         {href ? (
           <a
@@ -196,7 +299,6 @@ function NewsRow({ item, index }: { item: NewsItem; index: number }) {
         ) : (
           <h3 className="text-base font-medium text-slate-100">{item.title}</h3>
         )}
-        {item.summary && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{item.summary}</p>}
       </div>
       <time className="whitespace-nowrap font-mono text-sm text-slate-500 md:text-right">{formatNewsTime(item)}</time>
     </li>
@@ -214,7 +316,9 @@ function sourceOptions(items: NewsItem[]) {
       count: (current?.count ?? 0) + 1,
     });
   }
-  return Array.from(bySource.values()).sort((a, b) => b.count - a.count);
+  return Array.from(bySource.values()).sort(
+    (a, b) => SOURCE_ORDER.indexOf(a.id) - SOURCE_ORDER.indexOf(b.id),
+  );
 }
 
 function sourceId(item: NewsItem) {
@@ -227,6 +331,15 @@ function latestTimeLabel(items: NewsItem[]) {
     return "";
   }
   return new Date(timestamp).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatAnalysisTime(value: string) {
+  return new Date(value).toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

@@ -39,7 +39,7 @@ services:
     environment:
       POSTGRES_DSN: postgresql://quantdash:quantdash@postgres:5432/quantdash
       REDIS_URL: redis://redis:6379/0
-    command: ["python", "-c", "from backend.app.services.storage import ensure_schema; print(ensure_schema())"]
+    command: ["python", "-m", "backend.app.db.migrations"]
     depends_on:
       postgres:
         condition: service_healthy

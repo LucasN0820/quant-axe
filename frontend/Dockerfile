@@ -1,4 +1,4 @@
-FROM docker.m.daocloud.io/library/node:22-slim
+FROM node:22-slim
 
 WORKDIR /app
 

@@ -79,6 +79,16 @@ tasks:
     cmds:
       - "{{.BACKEND_PYTHON}} -m unittest discover backend -p '*_test.py'"
 
+  db:migrate:
+    desc: Apply PostgreSQL schema migrations
+    cmds:
+      - "{{.BACKEND_PYTHON}} -m backend.app.db.migrations"
+
+  db:stamp:
+    desc: Mark a legacy PostgreSQL schema as migrated after verifying it matches the baseline
+    cmds:
+      - "{{.BACKEND_PYTHON}} -m alembic -c alembic.ini stamp head"
+
   backend:lint:
     desc: Run backend Pylint checks
     preconditions:

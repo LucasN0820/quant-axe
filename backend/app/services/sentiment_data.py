@@ -78,7 +78,7 @@ def get_hot_keywords(limit: int = 30) -> dict[str, Any]:
     items = news_payload.get("data") or []
     if not items:
         return {
-            "source": "newsnow.derived",
+            "source": "news_collector.r2.derived",
             "status": "unavailable" if news_payload.get("status") == "unavailable" else "empty",
             "data": [],
             "captured_at": captured_at(),
@@ -99,7 +99,7 @@ def get_hot_keywords(limit: int = 30) -> dict[str, Any]:
 
     if not counter:
         return {
-            "source": "newsnow.derived",
+            "source": "news_collector.r2.derived",
             "status": "empty",
             "data": [],
             "captured_at": captured_at(),
@@ -122,12 +122,12 @@ def get_hot_keywords(limit: int = 30) -> dict[str, Any]:
 
     try:
         insert_hot_keywords(rows)
-        save_raw_payload("newsnow", "hot_keywords", rows)
+        save_raw_payload("news_collector.r2", "hot_keywords", rows)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
 
     return {
-        "source": "newsnow.derived",
+        "source": "news_collector.r2.derived",
         "status": "ready" if rows else "empty",
         "captured_at": now,
         "data": rows,

@@ -28,6 +28,7 @@ from backend.app.services.market_data import (
     get_order_book,
 )
 from backend.app.services.news_data import get_hot_news, get_stock_news
+from backend.app.services.news_ai_analysis import get_latest_analysis
 from backend.app.services.scheduler import scheduler_status, start_scheduler, stop_scheduler
 from backend.app.services.search_data import search_universe
 from backend.app.services.sentiment_data import get_hot_keywords
@@ -270,6 +271,11 @@ def hot_news(
     limit: int = Query(60, ge=1, le=200),
 ) -> dict:
     return get_hot_news(sources, limit)
+
+
+@app.get("/api/news/analysis/latest")
+def latest_news_analysis() -> dict:
+    return get_latest_analysis()
 
 
 @app.get("/api/universes")

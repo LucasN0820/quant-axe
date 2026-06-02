@@ -8,6 +8,8 @@ import type {
   HotKeyword,
   KlinePoint,
   MarketIndex,
+  NewsAnalysis,
+  NewsAnalysisState,
   NewsItem,
   OrderBookData,
   Quote,
@@ -18,6 +20,7 @@ import type {
 const QUOTE_POLL_INTERVAL_MS = 5_000;
 const INDEX_POLL_INTERVAL_MS = 5_000;
 const HOT_NEWS_POLL_INTERVAL_MS = 5_000;
+const NEWS_ANALYSIS_POLL_INTERVAL_MS = 30_000;
 
 function emptyState<T>(data: T): DetailState<T> {
   return { status: "idle", data };
@@ -306,7 +309,9 @@ export function useKlineData() {
 }
 
 export function useHotNews(limit = 30) {
-  const [hotNews, setHotNews] = useState<DetailState<NewsItem[]>>(emptyState([]));
+  const [hotNews, setHotNews] = useState<
+    DetailState<NewsItem[]> & { stale?: boolean; snapshot_date?: string; snapshot_crawl_time?: string }
+  >(emptyState([]));
 
   useEffect(() => {
     let active = true;
@@ -320,15 +325,33 @@ export function useHotNews(limit = 30) {
         );
       }
 
-      const result = await Promise.allSettled([
-        fetchJson<{ data: NewsItem[]; source?: string }>(`/api/news/hot?limit=${limit}`),
-      ]);
-
-      if (!active) {
-        return;
+      try {
+        const payload = await fetchJson<{
+          data: NewsItem[];
+          source?: string;
+          status?: string;
+          stale?: boolean;
+          snapshot_date?: string;
+          snapshot_crawl_time?: string;
+          message?: string;
+        }>(`/api/news/hot?limit=${limit}`);
+        if (!active) {
+          return;
+        }
+        setHotNews({
+          status: payload.status === "unavailable" ? "error" : payload.data.length > 0 ? "ready" : "empty",
+          data: payload.data,
+          source: payload.source,
+          stale: payload.stale,
+          snapshot_date: payload.snapshot_date,
+          snapshot_crawl_time: payload.snapshot_crawl_time,
+          message: payload.message,
+        });
+      } catch {
+        if (active) {
+          setHotNews({ status: "error", data: [], message: "热点新闻接口暂不可用" });
+        }
       }
-
-      setHotNews(toArrayState(result[0]));
     }
 
     void loadHotNews();
@@ -340,6 +363,51 @@ export function useHotNews(limit = 30) {
   }, [limit]);
 
   return hotNews;
+}
+
+export function useNewsAnalysis() {
+  const [analysis, setAnalysis] = useState<NewsAnalysisState>({ status: "loading", data: null });
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAnalysis() {
+      try {
+        const payload = await fetchJson<{
+          status: "ready" | "waiting" | "unavailable";
+          stale?: boolean;
+          data: NewsAnalysis | null;
+          message?: string;
+        }>("/api/news/analysis/latest");
+        if (!active) {
+          return;
+        }
+        setAnalysis({
+          status: payload.status === "unavailable" ? "error" : payload.status,
+          data: payload.data,
+          stale: payload.stale,
+          message: payload.message,
+        });
+      } catch (error) {
+        if (active) {
+          setAnalysis({
+            status: "error",
+            data: null,
+            message: error instanceof Error ? error.message : "热点分析暂不可用",
+          });
+        }
+      }
+    }
+
+    void loadAnalysis();
+    const timer = window.setInterval(loadAnalysis, NEWS_ANALYSIS_POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return analysis;
 }
 
 export function useMarketDetails(symbol: string) {

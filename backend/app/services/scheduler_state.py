@@ -20,12 +20,21 @@ class JobRegistry:
     def __init__(self) -> None:
         self.records: dict[str, dict[str, Any]] = {}
 
-    def remember(self, name: str, status: str, started_at: str, error: str | None = None) -> None:
+    def remember(
+        self,
+        name: str,
+        status: str,
+        started_at: str,
+        *,
+        error: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         self.records[name] = {
             "name": name,
             "status": status,
             "last_run_at": started_at,
             "error": error,
+            "details": details,
         }
 
     def snapshot(self) -> list[dict[str, Any]]:
@@ -40,6 +49,7 @@ def scheduler_status() -> dict[str, Any]:
     return {
         "enabled": SCHEDULER_ENABLED,
         "running": bool(runtime_state.get("running")),
+        "calendar_degraded": bool(runtime_state.get("calendar_degraded")),
         "jobs": registry.snapshot(),
         "checked_at": utc_now(),
     }

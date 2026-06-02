@@ -7,3 +7,8 @@ requests==2.34.2
 tushare==1.4.24
 apscheduler==3.10.4
 pypinyin==0.51.0
+SQLAlchemy==2.0.50
+alembic==1.18.4
+boto3==1.42.68
+litellm==1.82.6
+PyYAML==6.0.3

@@ -103,29 +103,26 @@ type WatchlistState = {
 | `GET /api/stock/intraday/[symbol]` | data-center | 分时图 |
 | `GET /api/stock/order-book/[symbol]` | data-center | 五档盘口 |
 | `GET /api/stock/trades/[symbol]` | data-center | 逐笔成交 |
-| `GET /api/news/hot` | data-center | News page 热点新闻流，参考 `news-collector` 的 NewsNow 聚合 API 方式接入 |
+| `GET /api/news/hot` | data-center | News page 财经热榜，读取 `news-collector` 上传到 R2 的 SQLite 快照 |
+| `GET /api/news/analysis/latest` | data-center | News page 最新 A 股时间线 AI 热点分析 |
 | `GET /api/stock/news/[symbol]` | data-center | 个股新闻流，使用 AkShare 个股新闻接口接入 |
 | `GET /api/stock/announcements/[symbol]` | data-center | 公告流，使用 Tushare `anns` |
 | `GET /api/stock/financials/[symbol]` | data-center | 财务摘要，使用 Tushare `daily_basic` + `fina_indicator` |
-| `GET /api/intelligence/hot-keywords` | data-center | 舆情热词，基于 NewsNow 标题派生 |
+| `GET /api/intelligence/hot-keywords` | data-center | 舆情热词，基于 R2 热点标题派生 |
 
 ### 5.1 新闻数据分层
 
 新闻在产品展示中分为两类：
 
-- 热点新闻：面向全市场，在 `/news` 独立页面展示当前主流平台的财经、宏观、产业和交易相关热点。Dashboard 右侧边栏只保留入口，不在 K 线主工作区展示热点列表。数据中心参考 `LucasN0820/news-collector` 的实现方式，通过 NewsNow 聚合 API 按平台 ID 拉取热榜，不直接逐站解析今日头条、微博、知乎、财联社、澎湃等页面。
+- 热点新闻：面向全市场，在 `/news` 独立页面展示财联社、华尔街见闻和凤凰网热榜。Dashboard 右侧边栏只保留入口。数据中心读取 `news-collector` 上传到 Cloudflare R2 的 SQLite 快照，并在页面顶部展示按 A 股时间线生成的 AI 分析。
 - 个股新闻：面向选中股票，在 Dashboard 详情区展示该股票相关的新闻流。数据中心使用 AkShare `stock_news_em` 接入东方财富个股新闻，并按 `symbol` 标准化返回。
 
-热点新闻优先支持以下 NewsNow 平台 ID：
+热点新闻首版支持以下平台 ID：
 
 ```text
 cls-hot           财联社热门
 wallstreetcn-hot  华尔街见闻
-thepaper          澎湃新闻
-baidu             百度热搜
-weibo             微博
-zhihu             知乎
-toutiao           今日头条
+ifeng             凤凰网
 ```
 
 热点新闻不等同于公告，也不承担个股精确关联。若需要在个股页展示“相关热点”，前端只能基于股票名称、简称、行业或关键词做弱关联标记，不能替代 `GET /api/stock/news/[symbol]`。

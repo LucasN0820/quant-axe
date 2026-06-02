@@ -84,6 +84,31 @@ export type NewsItem = {
   published_at?: string;
   updated_at?: string;
   captured_at?: string;
+  first_crawl_time?: string;
+  last_crawl_time?: string;
+  crawl_count?: number;
+  rank_timeline?: Array<{ time: string; rank: number | null }>;
+};
+
+export type NewsAnalysis = {
+  core_trends: string;
+  sentiment_controversy: string;
+  signals: string;
+  outlook_strategy: string;
+  node_key: string;
+  analysis_mode: "current" | "daily";
+  model: string;
+  snapshot_date: string;
+  snapshot_crawl_time: string;
+  generated_at: string;
+  analyzed_news: number;
+};
+
+export type NewsAnalysisState = {
+  status: "loading" | "ready" | "waiting" | "error";
+  data: NewsAnalysis | null;
+  stale?: boolean;
+  message?: string;
 };
 
 export type FinancialMetrics = {

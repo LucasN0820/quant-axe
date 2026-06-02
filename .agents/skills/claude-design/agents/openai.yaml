@@ -1,0 +1,5 @@
+interface:
+  display_name: "Claude Design"
+  short_description: "Build Claude-inspired light and dark interfaces"
+  brand_color: "#C96442"
+  default_prompt: "Use $claude-design to restyle this interface with a Claude-inspired light and dark theme."

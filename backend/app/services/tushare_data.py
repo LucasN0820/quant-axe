@@ -164,7 +164,12 @@ def fetch_tushare_daily_basic(symbol: str) -> dict[str, Any]:
                     "float_share": None,
                 },
             }
-    return {"symbol": symbol, "data": None, "source": "akshare.stock_zh_a_spot_em", "status": "empty"}
+    return {
+        "symbol": symbol,
+        "data": None,
+        "source": "akshare.stock_zh_a_spot_em",
+        "status": "empty",
+    }
 
 
 def fetch_tushare_fina_indicator(symbol: str) -> dict[str, Any]:

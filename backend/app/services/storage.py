@@ -8,176 +8,16 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.app.db.engine import engine
+from backend.app.db.repositories import universes as universe_repository
 from backend.app.services.config import CACHE_TTL_SECONDS, POSTGRES_DSN, REDIS_URL
-
-
-SCHEMA_STATEMENTS = [
-    """
-    CREATE TABLE IF NOT EXISTS raw_payloads (
-      id BIGSERIAL PRIMARY KEY,
-      provider TEXT NOT NULL,
-      dataset TEXT NOT NULL,
-      symbol TEXT,
-      payload JSONB NOT NULL,
-      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS stock_profiles (
-      symbol TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      exchange TEXT NOT NULL,
-      industry TEXT,
-      listed_at DATE,
-      delisted_at DATE,
-      pinyin TEXT,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS trade_calendar (
-      exchange TEXT NOT NULL,
-      date DATE NOT NULL,
-      is_open BOOLEAN NOT NULL,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (exchange, date)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS daily_bars (
-      symbol TEXT NOT NULL,
-      date DATE NOT NULL,
-      open DOUBLE PRECISION,
-      high DOUBLE PRECISION,
-      low DOUBLE PRECISION,
-      close DOUBLE PRECISION,
-      volume BIGINT,
-      turnover DOUBLE PRECISION,
-      amplitude DOUBLE PRECISION,
-      change_rate DOUBLE PRECISION,
-      change_amount DOUBLE PRECISION,
-      turnover_rate DOUBLE PRECISION,
-      adjust_type TEXT NOT NULL,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (symbol, date, adjust_type)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS stock_status (
-      symbol TEXT NOT NULL,
-      date DATE NOT NULL,
-      is_st BOOLEAN NOT NULL,
-      is_suspended BOOLEAN NOT NULL,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (symbol, date)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS limit_prices (
-      symbol TEXT NOT NULL,
-      date DATE NOT NULL,
-      up_limit DOUBLE PRECISION,
-      down_limit DOUBLE PRECISION,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (symbol, date)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS financial_metrics (
-      symbol TEXT NOT NULL,
-      report_period TEXT NOT NULL,
-      pe_ttm DOUBLE PRECISION,
-      pb DOUBLE PRECISION,
-      roe DOUBLE PRECISION,
-      gross_margin DOUBLE PRECISION,
-      source TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (symbol, report_period, source)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS hot_news_items (
-      id BIGSERIAL PRIMARY KEY,
-      source_id TEXT NOT NULL,
-      source_name TEXT NOT NULL,
-      rank INTEGER,
-      title TEXT NOT NULL,
-      url TEXT,
-      updated_at TIMESTAMPTZ,
-      captured_at TIMESTAMPTZ NOT NULL,
-      UNIQUE (source_id, title, captured_at)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS news_items (
-      id BIGSERIAL PRIMARY KEY,
-      symbol TEXT,
-      title TEXT NOT NULL,
-      summary TEXT,
-      source TEXT NOT NULL,
-      url TEXT,
-      published_at TIMESTAMPTZ,
-      type TEXT NOT NULL,
-      captured_at TIMESTAMPTZ NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS hot_keywords (
-      id BIGSERIAL PRIMARY KEY,
-      word TEXT NOT NULL,
-      heat DOUBLE PRECISION,
-      sources JSONB NOT NULL,
-      captured_at TIMESTAMPTZ NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS data_jobs (
-      id BIGSERIAL PRIMARY KEY,
-      job_type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      started_at TIMESTAMPTZ,
-      finished_at TIMESTAMPTZ,
-      error TEXT
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS universes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      base TEXT NOT NULL,
-      filters JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS universe_members (
-      universe_id TEXT NOT NULL,
-      date DATE NOT NULL,
-      symbol TEXT NOT NULL,
-      name TEXT NOT NULL,
-      included BOOLEAN NOT NULL,
-      excluded_reason TEXT,
-      can_buy BOOLEAN NOT NULL,
-      can_sell BOOLEAN NOT NULL,
-      flags JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL,
-      PRIMARY KEY (universe_id, date, symbol)
-    )
-    """,
-]
 
 
 @contextmanager
 def postgres_connection():
-    import psycopg  # pylint: disable=import-outside-toplevel
+    """Provide a pooled raw DBAPI connection during incremental migration."""
 
-    connection: Any = psycopg.connect(POSTGRES_DSN)
+    connection: Any = engine.raw_connection()
     try:
         yield connection
         connection.commit()  # pylint: disable=no-member
@@ -216,14 +56,6 @@ def redis_status() -> dict[str, Any]:
             "url": redact_dsn(REDIS_URL),
             "error": str(error),
         }
-
-
-def ensure_schema() -> dict[str, Any]:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            for statement in SCHEMA_STATEMENTS:
-                cursor.execute(statement)
-    return {"status": "ready", "tables": len(SCHEMA_STATEMENTS)}
 
 
 def record_job(
@@ -519,153 +351,44 @@ def insert_news_items(rows: Iterable[dict[str, Any]], news_type: str) -> None:
 
 
 def upsert_universe(universe: dict[str, Any]) -> None:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO universes (id, name, base, filters, created_at, updated_at)
-                VALUES (%s, %s, %s, %s::jsonb, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                  name = EXCLUDED.name,
-                  base = EXCLUDED.base,
-                  filters = EXCLUDED.filters,
-                  updated_at = EXCLUDED.updated_at
-                """,
-                (
-                    universe["id"],
-                    universe["name"],
-                    universe["base"],
-                    json.dumps(universe.get("filters") or [], ensure_ascii=False),
-                    universe["created_at"],
-                    universe["updated_at"],
-                ),
-            )
+    universe_repository.upsert_universe(universe)
 
 
 def fetch_universes() -> list[dict[str, Any]]:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT id, name, base, filters, created_at, updated_at
-                FROM universes
-                ORDER BY created_at, id
-                """
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return [
-                decode_json_columns(dict(zip(columns, row)), {"filters"})
-                for row in cursor.fetchall()
-            ]
+    return universe_repository.fetch_universes()
 
 
 def fetch_universe(universe_id: str) -> dict[str, Any] | None:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT id, name, base, filters, created_at, updated_at
-                FROM universes
-                WHERE id = %s
-                """,
-                (universe_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            columns = [desc[0] for desc in cursor.description]
-            return decode_json_columns(dict(zip(columns, row)), {"filters"})
+    return universe_repository.fetch_universe(universe_id)
 
 
 def delete_universe(universe_id: str) -> bool:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM universe_members WHERE universe_id = %s", (universe_id,))
-            cursor.execute("DELETE FROM universes WHERE id = %s", (universe_id,))
-            return bool(cursor.rowcount)
+    return universe_repository.delete_universe(universe_id)
 
 
 def fetch_stock_profiles_as_of(target_date: str) -> list[dict[str, Any]]:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT symbol, name, exchange, industry, listed_at, delisted_at, pinyin,
-                       source, updated_at
-                FROM stock_profiles
-                WHERE (listed_at IS NULL OR listed_at <= %s)
-                  AND (delisted_at IS NULL OR delisted_at > %s)
-                ORDER BY symbol
-                """,
-                (target_date, target_date),
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return universe_repository.fetch_stock_profiles_as_of(target_date)
 
 
 def fetch_daily_bars_for_date(
     target_date: str,
     symbols: Iterable[str],
 ) -> dict[str, dict[str, Any]]:
-    symbol_list = tuple(symbols)
-    if not symbol_list:
-        return {}
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT symbol, date, open, high, low, close, volume, turnover,
-                       amplitude, change_rate, change_amount, turnover_rate,
-                       adjust_type, source, updated_at
-                FROM daily_bars
-                WHERE date = %s AND adjust_type = 'none' AND symbol = ANY(%s)
-                """,
-                (target_date, list(symbol_list)),
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return {row[0]: dict(zip(columns, row)) for row in cursor.fetchall()}
+    return universe_repository.fetch_daily_bars_for_date(target_date, symbols)
 
 
 def fetch_stock_status_for_date(
     target_date: str,
     symbols: Iterable[str],
 ) -> dict[str, dict[str, Any]]:
-    symbol_list = tuple(symbols)
-    if not symbol_list:
-        return {}
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT symbol, date, is_st, is_suspended, source, updated_at
-                FROM stock_status
-                WHERE date = %s AND symbol = ANY(%s)
-                """,
-                (target_date, list(symbol_list)),
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return {row[0]: dict(zip(columns, row)) for row in cursor.fetchall()}
+    return universe_repository.fetch_stock_status_for_date(target_date, symbols)
 
 
 def fetch_limit_prices_for_date(
     target_date: str,
     symbols: Iterable[str],
 ) -> dict[str, dict[str, Any]]:
-    symbol_list = tuple(symbols)
-    if not symbol_list:
-        return {}
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT symbol, date, up_limit, down_limit, source, updated_at
-                FROM limit_prices
-                WHERE date = %s AND symbol = ANY(%s)
-                """,
-                (target_date, list(symbol_list)),
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return {row[0]: dict(zip(columns, row)) for row in cursor.fetchall()}
+    return universe_repository.fetch_limit_prices_for_date(target_date, symbols)
 
 
 def upsert_universe_members(
@@ -673,69 +396,11 @@ def upsert_universe_members(
     target_date: str,
     rows: Iterable[dict[str, Any]],
 ) -> int:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    count = 0
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            for row in rows:
-                cursor.execute(
-                    """
-                    INSERT INTO universe_members
-                      (universe_id, date, symbol, name, included, excluded_reason,
-                       can_buy, can_sell, flags, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                    ON CONFLICT (universe_id, date, symbol) DO UPDATE SET
-                      name = EXCLUDED.name,
-                      included = EXCLUDED.included,
-                      excluded_reason = EXCLUDED.excluded_reason,
-                      can_buy = EXCLUDED.can_buy,
-                      can_sell = EXCLUDED.can_sell,
-                      flags = EXCLUDED.flags,
-                      created_at = EXCLUDED.created_at
-                    """,
-                    (
-                        universe_id,
-                        target_date,
-                        row["symbol"],
-                        row["name"],
-                        row["included"],
-                        row.get("excluded_reason"),
-                        row.get("can_buy", True),
-                        row.get("can_sell", True),
-                        json.dumps(row.get("flags") or [], ensure_ascii=False),
-                        now,
-                    ),
-                )
-                count += 1
-    return count
+    return universe_repository.upsert_universe_members(universe_id, target_date, rows)
 
 
 def fetch_universe_members(universe_id: str, target_date: str) -> list[dict[str, Any]]:
-    with postgres_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT date, universe_id, symbol, name, included, excluded_reason,
-                       can_buy, can_sell, flags, created_at
-                FROM universe_members
-                WHERE universe_id = %s AND date = %s
-                ORDER BY included DESC, symbol
-                """,
-                (universe_id, target_date),
-            )
-            columns = [desc[0] for desc in cursor.description]
-            return [
-                decode_json_columns(dict(zip(columns, row)), {"flags"})
-                for row in cursor.fetchall()
-            ]
-
-
-def decode_json_columns(row: dict[str, Any], keys: set[str]) -> dict[str, Any]:
-    for key in keys:
-        value = row.get(key)
-        if isinstance(value, str):
-            row[key] = json.loads(value)
-    return row
+    return universe_repository.fetch_universe_members(universe_id, target_date)
 
 
 def cache_get_json(key: str) -> Any | None:

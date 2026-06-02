@@ -1,0 +1,29 @@
+timezone: Asia/Shanghai
+
+trading_day:
+  - node: pre_market
+    times: ["09:20"]
+    mode: daily
+  - node: morning_session
+    times: ["10:00", "10:30", "11:00", "11:30"]
+    mode: current
+  - node: midday_summary
+    times: ["12:00"]
+    mode: daily
+  - node: afternoon_session
+    times: ["13:30", "14:00", "14:30", "15:00"]
+    mode: current
+  - node: closing_summary
+    times: ["15:30"]
+    mode: daily
+  - node: evening_summary
+    times: ["18:30"]
+    mode: daily
+
+non_trading_day:
+  - node: non_trading_morning
+    times: ["09:30"]
+    mode: daily
+  - node: non_trading_evening
+    times: ["18:30"]
+    mode: daily

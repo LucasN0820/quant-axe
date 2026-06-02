@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from backend.app.services.market_data import stock_code_name_rows, stringify
 from backend.app.services.reference_utils import infer_exchange, normalize_provider_date, utc_now
-from backend.app.services.storage import (
+from backend.app.db.repositories.universes import (
     delete_universe,
     fetch_daily_bars_for_date,
     fetch_limit_prices_for_date,

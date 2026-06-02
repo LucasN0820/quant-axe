@@ -30,10 +30,11 @@ from backend.app.services.reference_utils import (
     normalize_provider_date,
     utc_now,
 )
+from backend.app.services.news_r2 import r2_provider_status
+from backend.app.db.migrations import initialize_database
 from backend.app.services.storage import (
     cache_get_json,
     cache_set_json,
-    ensure_schema,
     postgres_status,
     record_job,
     redis_status,
@@ -45,7 +46,7 @@ from backend.app.services.storage import (
 )
 
 DATA_JOB_DEFINITIONS = {
-    "initialize_storage": "Create PostgreSQL tables for local Data Center storage",
+    "initialize_storage": "Apply PostgreSQL schema migrations for local Data Center storage",
     "stock_profiles": "Refresh stock profile reference data",
     "tushare_stock_profiles": "Refresh stock profiles from Tushare",
     "trade_calendar": "Refresh exchange trading calendar",
@@ -73,8 +74,12 @@ def data_health() -> dict[str, Any]:
         "service": "quantdash-data-center",
         "updated_at": utc_now(),
         "providers": [
-            {"id": "akshare", "status": "configured", "role": "market/reference/news/financials/announcements"},
-            {"id": "newsnow", "status": "configured", "role": "hot_news"},
+            {
+                "id": "akshare",
+                "status": "configured",
+                "role": "market/reference/news/financials/announcements",
+            },
+            r2_provider_status(),
             tushare_status() | {"role": "reference/supplement"},
         ],
         "storage": [
@@ -112,13 +117,15 @@ def run_data_job(job_type: str) -> dict[str, Any]:
     started_at = utc_now()
     try:
         if job_type == "initialize_storage":
-            result = ensure_schema()
+            result = initialize_database()
         elif job_type == "stock_profiles":
             result = refresh_stock_profiles()
         elif job_type == "tushare_stock_profiles":
             result = refresh_tushare_stock_profiles()
         elif job_type == "trade_calendar":
             result = refresh_trade_calendar()
+        elif job_type == "news":
+            result = refresh_hot_news()
         elif job_type == "hot_keywords":
             result = refresh_hot_keywords()
         elif job_type == "financials":
@@ -199,6 +206,18 @@ def refresh_trade_calendar() -> dict[str, Any]:
     upsert_trade_calendar(payload["data"])
     save_raw_payload("akshare", "tool_trade_date_hist_sina", payload["data"])
     return {"status": "ready", "rows": len(payload["data"])}
+
+
+def refresh_hot_news() -> dict[str, Any]:
+    from backend.app.services.news_r2 import refresh_snapshot  # pylint: disable=import-outside-toplevel
+
+    snapshot = refresh_snapshot(force=True)
+    return {
+        "status": "ready",
+        "snapshot_key": snapshot.key,
+        "snapshot_etag": snapshot.etag,
+        "stale": snapshot.stale,
+    }
 
 
 def refresh_hot_keywords() -> dict[str, Any]:

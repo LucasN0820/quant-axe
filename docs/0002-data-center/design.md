@@ -43,7 +43,7 @@ External Sources
 | 关系数据          | PostgreSQL                                             |
 | 历史行情/因子矩阵 | PostgreSQL（第一阶段）；Parquet / DuckDB 后续评估      |
 | 高频缓存          | Redis                                                  |
-| 数据源            | AkShare 行情与个股新闻，NewsNow 热点新闻，Tushare 公告与财务 |
+| 数据源            | AkShare 行情与个股新闻，`news-collector` R2 热点快照，Tushare 公告与财务 |
 
 ## 4. 数据分层
 
@@ -77,14 +77,17 @@ financial_metrics(symbol, report_period, pe_ttm, pb, roe, gross_margin, source)
 news_items(id, symbol, title, summary, source, url, published_at, type)
 hot_news_items(id, source_id, source_name, rank, title, url, updated_at, captured_at)
 hot_keywords(id, word, heat, sources, captured_at)
+hot_news_ai_analyses(id, snapshot_key, snapshot_etag, node_key, analysis_mode, content, generated_at)
+hot_news_ai_analysis_runs(id, execution_date, node_key, scheduled_time, status, error)
 data_jobs(id, job_type, status, started_at, finished_at, error)
 ```
 
 新闻与舆情数据分层：
 
-- `hot_news_items` 保存全市场热点新闻。数据源参考 `news-collector` 的 NewsNow 聚合 API 方式，按平台 ID 拉取热榜，适合构建市场级舆情和热词，不直接作为个股新闻。
+- 热点新闻由 News Center 只读访问 `news-collector` 上传到 Cloudflare R2 的 SQLite 快照，不直接请求公开 NewsNow 实例。
 - `news_items` 保存个股新闻、公告、财报、回购、减持、增持等与股票强相关的数据。第一版个股新闻使用 AkShare `stock_news_em`，公告使用 Tushare `anns`。
-- `hot_keywords` 第一版基于 NewsNow 热点标题派生热词，后续可替换为更完整的 NLP/情绪模型，API 契约保持稳定。
+- `hot_keywords` 第一版基于 R2 热点标题派生热词，后续可替换为更完整的 NLP/情绪模型，API 契约保持稳定。
+- `hot_news_ai_analyses` 与 `hot_news_ai_analysis_runs` 保存按 A 股时间线生成的 AI 分析和调度执行结果。
 
 ## 6. API 设计
 
@@ -104,6 +107,7 @@ GET /api/stock/trades/[symbol]?limit=
 GET /api/stock/status/[symbol]?date=
 GET /api/stock/financials/[symbol]
 GET /api/news/hot?sources=&limit=
+GET /api/news/analysis/latest
 GET /api/stock/news/[symbol]?limit=
 GET /api/stock/announcements/[symbol]?limit=
 GET /api/intelligence/hot-keywords?limit=
@@ -129,8 +133,8 @@ GET /api/intelligence/hot-keywords?limit=
 | 指数成分股 + 权重               | AkShare `index_stock_cons_weight_csindex`                              | Tushare `index_weight`（备选）         |
 | 公告                            | AkShare `stock_notice_report`                                          | Tushare `anns`（备选）                 |
 | 个股新闻                        | AkShare `stock_news_em`                  | —                                      |
-| 全市场热点新闻                  | NewsNow 聚合                             | —                                      |
-| 舆情热词                        | NewsNow 标题派生                         | AkShare `stock_hot_keyword_em`（后续） |
+| 全市场热点新闻                  | `news-collector` Cloudflare R2 快照      | —                                      |
+| 舆情热词                        | R2 热点标题派生                          | AkShare `stock_hot_keyword_em`（后续） |
 | 板块/概念                       | AkShare                                  | —                                      |
 
 ### 7.2 已接入 Tushare 接口
@@ -169,7 +173,7 @@ GET /api/intelligence/hot-keywords?limit=
 | 环境变量                       | 默认值  | 说明                           |
 | ------------------------------ | ------- | ------------------------------ |
 | `SCHEDULER_ENABLED`            | `false` | 是否启用调度器                 |
-| `HOT_NEWS_REFRESH_MINUTES`     | `15`    | 热点新闻刷新间隔               |
+| `NEWS_R2_CACHE_TTL_SECONDS`    | `300`   | R2 热点快照 ETag 检查间隔       |
 | `HOT_KEYWORDS_REFRESH_MINUTES` | `30`    | 舆情热词刷新间隔               |
 | `STOCK_PROFILE_REFRESH_HOURS`  | `24`    | 股票基础信息刷新间隔           |
 | `TRADE_CALENDAR_REFRESH_HOURS` | `24`    | 交易日历刷新间隔               |
@@ -180,7 +184,8 @@ GET /api/intelligence/hot-keywords?limit=
 
 | 任务                     | 触发方式        | 说明                                |
 | ------------------------ | --------------- | ----------------------------------- |
-| `hot_news_refresh`       | interval        | 拉取 NewsNow 热点新闻               |
+| `hot_news_refresh`       | interval        | 检查并刷新 R2 热点快照               |
+| `hot_news_ai_analysis`   | 每分钟检查      | 按 A 股时间线生成 AI 热点分析         |
 | `hot_keywords_refresh`   | interval        | 从热点标题派生热词                  |
 | `stock_profile_refresh`  | interval        | 刷新 AkShare + Tushare 股票基础信息 |
 | `trade_calendar_refresh` | interval        | 刷新交易日历                        |
@@ -195,14 +200,14 @@ GET /api/intelligence/hot-keywords?limit=
 
 ## 9. 新闻与舆情 Provider 设计
 
-### 9.1 NewsNow 热点新闻 Provider
+### 9.1 news-collector R2 热点新闻 Provider
 
 - 用途：全市场热点新闻和舆情热词输入。
-- 参考实现：`LucasN0820/news-collector` 的 `DataFetcher`，请求 `GET /api/s?id=<platform_id>&latest`。
-- 配置项：`NEWSNOW_API_BASE`、启用的平台 ID 列表、请求间隔、超时、重试次数。
-- 推荐平台：`cls-hot`、`wallstreetcn-hot`、`thepaper`、`baidu`、`weibo`、`zhihu`、`toutiao`。
-- 清洗规则：跳过空标题；保留来源、排名、URL、更新时间；同一 `source_id + title` 在同一抓取批次去重。
-- 风险控制：公开 NewsNow 实例只作为 MVP 数据源，后续应允许切换到自建 NewsNow 服务，避免依赖第三方公开实例稳定性。
+- 数据源：只读访问 `news-collector` 上传到 Cloudflare R2 的 `news/YYYY-MM-DD.db`。
+- 配置项：`NEWS_R2_*`、`HOT_NEWS_SOURCES`、`NEWS_R2_CACHE_TTL_SECONDS`。
+- 推荐平台：`cls-hot`、`wallstreetcn-hot`、`ifeng`。
+- 清洗规则：页面读取最新 `crawl_records.crawl_time` 对应榜单；AI 可读取当日累计条目和 `rank_history`。
+- 风险控制：当天快照异常时回退最近可读对象并标记 `stale`；ETag 未变化时不重复下载或分析。
 
 ### 9.2 AkShare 个股新闻 Provider
 

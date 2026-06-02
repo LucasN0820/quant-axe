@@ -7,11 +7,12 @@ from datetime import datetime
 from typing import Any
 
 from backend.app.services.config import (
+    AI_ANALYSIS_ENABLED,
     DAILY_BARS_CRON_HOUR,
     DAILY_REFRESH_WATCHLIST,
     FINANCIALS_CRON_HOUR,
     HOT_KEYWORDS_REFRESH_MINUTES,
-    HOT_NEWS_REFRESH_MINUTES,
+    NEWS_R2_CACHE_TTL_SECONDS,
     SCHEDULER_ENABLED,
     STOCK_PROFILE_REFRESH_HOURS,
     TRADE_CALENDAR_REFRESH_HOURS,
@@ -56,12 +57,21 @@ def start_scheduler() -> dict[str, Any]:
 
     scheduler.add_job(
         run_hot_news_refresh,
-        IntervalTrigger(minutes=HOT_NEWS_REFRESH_MINUTES),
+        IntervalTrigger(seconds=NEWS_R2_CACHE_TTL_SECONDS),
         id="hot_news_refresh",
         name="hot_news_refresh",
         max_instances=1,
         replace_existing=True,
     )
+    if AI_ANALYSIS_ENABLED:
+        scheduler.add_job(
+            run_hot_news_ai_analysis,
+            IntervalTrigger(minutes=1),
+            id="hot_news_ai_analysis",
+            name="hot_news_ai_analysis",
+            max_instances=1,
+            replace_existing=True,
+        )
     scheduler.add_job(
         run_hot_keywords_refresh,
         IntervalTrigger(minutes=HOT_KEYWORDS_REFRESH_MINUTES),
@@ -128,6 +138,10 @@ def run_hot_keywords_refresh() -> None:
     track("hot_keywords_refresh", _refresh_hot_keywords)
 
 
+def run_hot_news_ai_analysis() -> None:
+    track("hot_news_ai_analysis", _refresh_hot_news_ai_analysis)
+
+
 def run_stock_profile_refresh() -> None:
     track("stock_profile_refresh", _refresh_stock_profiles)
 
@@ -147,16 +161,28 @@ def run_financials_refresh() -> None:
 def track(name: str, action) -> None:
     started_at = datetime.utcnow().isoformat(timespec="seconds")
     try:
-        action()
-        registry.remember(name, "ok", started_at)
+        result = action()
+        if isinstance(result, dict) and "calendar_degraded" in result:
+            runtime_state["calendar_degraded"] = bool(result["calendar_degraded"])
+        registry.remember(
+            name,
+            "ok",
+            started_at,
+            details=result if isinstance(result, dict) else None,
+        )
     except Exception as error:  # pylint: disable=broad-exception-caught
         registry.remember(name, "failed", started_at, error=str(error))
 
 
-def _refresh_hot_news() -> None:
-    from backend.app.services.news_data import get_hot_news  # pylint: disable=import-outside-toplevel
+def _refresh_hot_news() -> dict[str, Any]:
+    from backend.app.services.news_r2 import refresh_snapshot  # pylint: disable=import-outside-toplevel
 
-    get_hot_news(limit=120)
+    snapshot = refresh_snapshot(force=True)
+    return {
+        "snapshot_key": snapshot.key,
+        "snapshot_etag": snapshot.etag,
+        "stale": snapshot.stale,
+    }
 
 
 def _refresh_hot_keywords() -> None:
@@ -165,6 +191,14 @@ def _refresh_hot_keywords() -> None:
     )
 
     get_hot_keywords(limit=50)
+
+
+def _refresh_hot_news_ai_analysis() -> dict[str, Any]:
+    from backend.app.services.news_ai_analysis import (  # pylint: disable=import-outside-toplevel
+        run_due_analyses,
+    )
+
+    return run_due_analyses()
 
 
 def _refresh_stock_profiles() -> None:

@@ -1,4 +1,4 @@
-FROM docker.m.daocloud.io/library/python:3.12-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -16,6 +16,7 @@ RUN python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/sim
   && python -m pip install -r backend/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY backend backend
+COPY alembic.ini alembic.ini
 
 EXPOSE 8000
 
